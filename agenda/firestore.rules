@@ -1,12 +1,22 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Ogni agenda vive sotto /agende/<codice>. Il codice è lungo e casuale:
-    // solo chi ha il link può leggere e scrivere. Non è consentito elencare le agende.
-    match /agende/{code}/{col}/{id} {
-      allow read, write: if code.size() >= 12
-        && col in ['profiles', 'appts', 'contacts']
-        && (request.resource == null || request.resource.size() < 64);
+
+    // ⬇︎ Scrivi qui le email delle tre persone autorizzate (in minuscolo).
+    function autorizzato() {
+      return request.auth != null
+        && request.auth.token.email.lower() in [
+          'persona1@esempio.it',
+          'persona2@esempio.it',
+          'persona3@esempio.it'
+        ];
     }
+
+    // Tutti i dati dell'agenda: profili, appuntamenti, rubrica.
+    match /agenda/principale/{col}/{id} {
+      allow read, write: if autorizzato()
+        && col in ['profiles', 'appts', 'contacts'];
+    }
+    // Tutto il resto è chiuso.
   }
 }
