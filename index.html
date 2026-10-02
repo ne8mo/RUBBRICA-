@@ -1,0 +1,599 @@
+<title>Rubrica Salone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600&display=swap">
+<style>
+/* Layout: una colonna da app — testata con ricerca e sezioni, elenco clienti, scheda cliente a pannello */
+:root {
+  --bg: #f5f3f4;
+  --surface: #ffffff;
+  --ink: #1f1a1d;
+  --muted: #6c6268;
+  --line: #e5dfe2;
+  --accent: #7a2e4f;
+  --accent-ink: #ffffff;
+  --accent-soft: #f4e5ec;
+  --wa: #157347;
+  --wa-ink: #ffffff;
+  --danger: #b3261e;
+  --danger-soft: #fbe9e7;
+  --note: #8a5a00;
+  --note-soft: #fdf3dc;
+  --shadow: 0 10px 40px rgba(40, 20, 30, .18);
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --r: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141113; --surface: #1e1a1d; --ink: #f2edf0; --muted: #a99ea4; --line: #352e33;
+    --accent: #e58fb5; --accent-ink: #25111b; --accent-soft: #3b2330;
+    --wa: #3fbf7f; --wa-ink: #0d2318; --danger: #ff8a80; --danger-soft: #3d1f1d;
+    --note: #f1c46b; --note-soft: #3a2e14; --shadow: 0 10px 40px rgba(0,0,0,.5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141113; --surface: #1e1a1d; --ink: #f2edf0; --muted: #a99ea4; --line: #352e33;
+  --accent: #e58fb5; --accent-ink: #25111b; --accent-soft: #3b2330;
+  --wa: #3fbf7f; --wa-ink: #0d2318; --danger: #ff8a80; --danger-soft: #3d1f1d;
+  --note: #f1c46b; --note-soft: #3a2e14; --shadow: 0 10px 40px rgba(0,0,0,.5);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 860px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+
+header.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--bg); padding-block: 14px 10px; display: grid; gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand h1 { font-family: var(--font-display); font-weight: 700; font-size: 1.6rem; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+.brand h1 span { color: var(--accent); }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--muted); }
+.status i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.status.live i { background: var(--wa); }
+.status.local i { background: var(--note); }
+
+.searchrow { display: flex; gap: 8px; }
+.search { flex: 1; min-width: 0; position: relative; }
+.search input { width: 100%; padding: 11px 12px 11px 38px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; stroke: var(--muted); fill: none; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); padding: 9px 14px; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: .9rem; text-decoration: none; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.wa { background: var(--wa); color: var(--wa-ink); border-color: var(--wa); }
+.btn.danger { color: var(--danger); }
+.btn.danger.armed { background: var(--danger); color: var(--surface); border-color: var(--danger); }
+.btn.small { padding: 6px 11px; font-size: .82rem; }
+.btn svg { width: 16px; height: 16px; flex: none; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; font-size: .85rem; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.chip b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); font-size: .78rem; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip[aria-pressed="true"] b { color: var(--bg); opacity: .7; }
+.chip.manage { border-style: dashed; color: var(--muted); }
+
+.banner { margin-top: 14px; padding: 10px 14px; border-radius: var(--r); background: var(--note-soft); color: var(--note); font-size: .88rem; }
+
+.list { display: grid; gap: 8px; margin-top: 14px; }
+.card { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 10px 10px 12px; flex-wrap: wrap; }
+.card-main { flex: 1 1 260px; min-width: 0; display: flex; align-items: center; gap: 12px; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.avatar { flex: none; width: 42px; height: 42px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; font-size: .95rem; }
+.who { min-width: 0; display: grid; gap: 2px; }
+.who .name { font-weight: 600; font-size: 1rem; overflow-wrap: anywhere; }
+.who .phone { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .88rem; user-select: all; }
+.who .last { font-size: .85rem; color: var(--ink); overflow-wrap: anywhere; }
+.who .last em { font-style: normal; color: var(--muted); }
+.pill { display: inline-block; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: 2px; }
+.actions { display: flex; gap: 6px; margin-left: auto; }
+
+.empty { text-align: center; padding: 48px 16px; color: var(--muted); display: grid; gap: 10px; justify-items: center; }
+.empty h2 { font-family: var(--font-display); color: var(--ink); margin: 0; font-size: 1.25rem; }
+.empty p { margin: 0; max-width: 42ch; }
+
+/* Pannello scheda */
+.overlay { position: fixed; inset: 0; background: rgba(20, 10, 16, .45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--surface); width: 100%; max-width: 560px; max-height: 92%; overflow-y: auto; border-radius: 18px 18px 0 0; box-shadow: var(--shadow); padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 16px; }
+@media (min-width: 640px) { .overlay { align-items: center; } .sheet { border-radius: 18px; max-height: 88%; } }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sheet-head h2 { font-family: var(--font-display); margin: 0; font-size: 1.3rem; }
+.x { border: 0; background: none; cursor: pointer; width: 36px; height: 36px; border-radius: 50%; font-size: 1.4rem; line-height: 1; color: var(--muted); }
+.x:hover { background: var(--bg); }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 460px) { .grid2 { grid-template-columns: 1fr; } }
+label.f { display: grid; gap: 4px; font-size: .78rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+label.f input, label.f select, label.f textarea, .tr-add input { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 1rem; color: var(--ink); padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); width: 100%; min-width: 0; }
+label.f textarea { resize: vertical; min-height: 64px; }
+.hint { font-size: .8rem; color: var(--muted); margin: 0; }
+
+.tr { display: grid; gap: 8px; }
+.tr h3 { margin: 0; font-size: .78rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.tr-add { display: grid; grid-template-columns: 1fr 150px auto; gap: 8px; }
+@media (max-width: 460px) { .tr-add { grid-template-columns: 1fr 1fr; } .tr-add .btn { grid-column: 1 / -1; } }
+.tr-list { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.tr-list li { display: flex; align-items: baseline; gap: 10px; padding: 9px 12px; border-top: 1px solid var(--line); }
+.tr-list li:first-child { border-top: 0; }
+.tr-list .d { flex: none; width: 92px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: .85rem; }
+.tr-list .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tr-list button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 1.1rem; padding: 0 4px; }
+.tr-list button:hover { color: var(--danger); }
+.tr-empty { padding: 10px 12px; color: var(--muted); font-size: .88rem; }
+
+.contact-links { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.sheet-foot { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; padding-top: 4px; border-top: 1px solid var(--line); padding-top: 14px; }
+.sheet-foot .right { display: flex; gap: 8px; margin-left: auto; }
+.dirty { font-size: .82rem; color: var(--note); background: var(--note-soft); padding: 6px 10px; border-radius: 8px; }
+
+.sec-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sec-list li { display: flex; gap: 8px; align-items: center; }
+.sec-list input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.sec-add { display: flex; gap: 8px; }
+.sec-add input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: .9rem; z-index: 40; box-shadow: var(--shadow); max-width: calc(100% - 32px); }
+.toast.err { background: var(--danger); color: var(--surface); }
+
+.footer-tools { margin-top: 22px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.ro { font-size: .78rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .sheet { animation: up .18s ease-out; }
+  @keyframes up { from { transform: translateY(16px); opacity: .6; } to { transform: none; opacity: 1; } }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Rubrica <span>Salone</span></h1>
+      <span class="status" id="status"><i></i><span id="statusText">Collegamento…</span></span>
+    </div>
+    <div class="searchrow">
+      <label class="search" for="q">
+        <svg viewBox="0 0 24 24" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Cerca nome, telefono o trattamento" autocomplete="off">
+      </label>
+      <button class="btn primary" id="newBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Nuovo
+      </button>
+    </div>
+    <nav class="chips" id="chips" aria-label="Sezioni"></nav>
+  </header>
+
+  <div class="banner" id="localBanner" hidden>
+    Modalità locale: i contatti restano solo su questo dispositivo. Apri la rubrica dal link condiviso su claude.ai per vederla uguale su tutti i telefoni del negozio.
+  </div>
+
+  <main class="list" id="list" aria-live="polite"></main>
+
+  <div class="footer-tools">
+    <button class="btn small" id="exportBtn" type="button" hidden>Scarica elenco (CSV)</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+  const fmtDate = iso => { if (!iso) return ''; const d = new Date(iso + 'T12:00:00'); return isNaN(d) ? iso : d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }); };
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+
+  const ICON_WA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20l1.3-3.9A8 8 0 1 1 8 19z"/><path d="M9.5 9.5c.3 1.8 1.7 3.4 3.5 4l1.2-1 1.8.8-.4 1.6c-3.4.2-6.6-2.9-6.6-6.3l1.6-.4.8 1.8z" fill="currentColor" stroke="none"/></svg>';
+  const ICON_TEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>';
+
+  // Numero per WhatsApp: solo cifre, con prefisso internazionale (Italia +39 se manca)
+  function waNumber(p) {
+    let s = String(p || '').trim().replace(/[^\d+]/g, '');
+    if (s.startsWith('+')) return s.slice(1).replace(/\D/g, '');
+    s = s.replace(/\D/g, '');
+    if (s.startsWith('00')) return s.slice(2);
+    if (!s) return '';
+    if (s.startsWith('39') && s.length >= 11) return s;
+    return '39' + s;
+  }
+  const waLink = c => {
+    const n = waNumber(c.telefono);
+    if (!n) return '';
+    const msg = c.nome ? `Ciao ${c.nome}, ` : '';
+    return `https://wa.me/${n}${msg ? '?text=' + encodeURIComponent(msg) : ''}`;
+  };
+  const telLink = c => { const n = String(c.telefono || '').replace(/[^\d+]/g, ''); return n ? 'tel:' + n : ''; };
+  const fullName = c => [c.nome, c.cognome].filter(Boolean).join(' ') || 'Senza nome';
+  const initials = c => ((c.nome || '')[0] || '') + ((c.cognome || '')[0] || '') || '·';
+  const sortedTreatments = c => (Array.isArray(c.trattamenti) ? c.trattamenti : []).slice().sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+
+  const state = { contacts: [], sections: [], filter: 'all', q: '', mode: 'loading', canWrite: true };
+  let backend = null;
+  let downloads = null;
+
+  // ---------- Archivio: condiviso (db) oppure locale ----------
+  function localBackend() {
+    const KEY = 'rubrica-salone-v1';
+    let data = { contacts: {}, sections: {} };
+    try { const raw = localStorage.getItem(KEY); if (raw) data = JSON.parse(raw); } catch (e) {}
+    data.contacts ||= {}; data.sections ||= {};
+    let cbs = null;
+    const emit = () => {
+      if (!cbs) return;
+      cbs.c(Object.entries(data.contacts).map(([id, v]) => ({ id, ...v })));
+      cbs.s(Object.entries(data.sections).map(([id, v]) => ({ id, ...v })));
+    };
+    const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} emit(); };
+    return {
+      subscribe(c, s) { cbs = { c, s }; emit(); },
+      async saveContact(id, d) { data.contacts[id] = d; persist(); },
+      async deleteContact(id) { delete data.contacts[id]; persist(); },
+      async saveSection(id, d) { data.sections[id] = d; persist(); },
+      async deleteSection(id) { delete data.sections[id]; persist(); },
+    };
+  }
+  function dbBackend(db) {
+    return {
+      subscribe(c, s, err) {
+        db.collection('contacts').onSnapshot(snap => c(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err);
+        db.collection('sections').onSnapshot(snap => s(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err);
+      },
+      saveContact: (id, d) => db.doc('contacts/' + id).set(d),
+      deleteContact: id => db.doc('contacts/' + id).delete(),
+      saveSection: (id, d) => db.doc('sections/' + id).set(d),
+      deleteSection: id => db.doc('sections/' + id).delete(),
+    };
+  }
+
+  function setMode(mode) {
+    state.mode = mode;
+    const st = $('#status');
+    st.className = 'status ' + (mode === 'live' ? 'live' : mode === 'local' ? 'local' : '');
+    $('#statusText').textContent = mode === 'live' ? 'Condivisa · aggiornata in tempo reale' : mode === 'local' ? 'Solo su questo dispositivo' : 'Collegamento…';
+    $('#localBanner').hidden = mode !== 'local';
+  }
+
+  function start(be) {
+    backend = be;
+    backend.subscribe(
+      list => { state.contacts = list; render(); refreshOpenSheet(); },
+      list => { state.sections = list.sort((a, b) => (a.ordine || 0) - (b.ordine || 0)); render(); },
+      e => { if (e && e.code === 'revoked') { state.canWrite = false; render(); } else toast('Aggiornamento interrotto: ricarica la pagina.', true); }
+    );
+  }
+
+  async function writeOp(fn, okMsg) {
+    try { await fn(); if (okMsg) toast(okMsg); return true; }
+    catch (e) {
+      if (e && e.code === 'invalid_argument' && state.mode === 'live') { state.canWrite = false; render(); toast('Non hai il permesso di modificare la rubrica. Chiedi alla titolare di darti accesso come Collaboratore.', true); }
+      else if (e && e.code === 'quota_exceeded') toast('Spazio esaurito: elimina qualche contatto vecchio e riprova.', true);
+      else toast('Salvataggio non riuscito. Controlla la connessione e riprova.', true);
+      return false;
+    }
+  }
+
+  // ---------- Elenco ----------
+  const sectionName = id => (state.sections.find(s => s.id === id) || {}).nome || '';
+
+  function filtered() {
+    const q = state.q.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, '');
+    return state.contacts
+      .filter(c => state.filter === 'all' || (state.filter === 'none' ? !sectionName(c.sezione) : c.sezione === state.filter))
+      .filter(c => {
+        if (!q) return true;
+        const hay = [c.nome, c.cognome, c.note, ...(c.trattamenti || []).map(t => t.testo)].join(' ').toLowerCase();
+        if (hay.includes(q)) return true;
+        return qDigits.length >= 3 && String(c.telefono || '').replace(/\D/g, '').includes(qDigits);
+      })
+      .sort((a, b) => (a.cognome || a.nome || '').localeCompare(b.cognome || b.nome || '', 'it') || (a.nome || '').localeCompare(b.nome || '', 'it'));
+  }
+
+  function renderChips() {
+    const count = id => state.contacts.filter(c => c.sezione === id).length;
+    const noneCount = state.contacts.filter(c => !sectionName(c.sezione)).length;
+    if (state.filter !== 'all' && state.filter !== 'none' && !state.sections.some(s => s.id === state.filter)) state.filter = 'all';
+    let h = `<button class="chip" type="button" data-filter="all" aria-pressed="${state.filter === 'all'}">Tutti <b>${state.contacts.length}</b></button>`;
+    for (const s of state.sections) h += `<button class="chip" type="button" data-filter="${esc(s.id)}" aria-pressed="${state.filter === s.id}">${esc(s.nome)} <b>${count(s.id)}</b></button>`;
+    if (noneCount && state.sections.length) h += `<button class="chip" type="button" data-filter="none" aria-pressed="${state.filter === 'none'}">Senza sezione <b>${noneCount}</b></button>`;
+    if (state.canWrite) h += `<button class="chip manage" type="button" id="manageBtn">+ Sezioni</button>`;
+    else h += `<span class="ro">Sola lettura</span>`;
+    $('#chips').innerHTML = h;
+  }
+
+  function render() {
+    renderChips();
+    $('#newBtn').hidden = !state.canWrite;
+    $('#exportBtn').hidden = !(downloads && state.contacts.length);
+    const list = $('#list');
+    if (state.mode === 'loading') {
+      list.innerHTML = `<div class="empty"><p>Sto aprendo la rubrica…</p></div>`;
+      return;
+    }
+    if (!state.contacts.length) {
+      list.innerHTML = `<div class="empty"><h2>Ancora nessun cliente</h2><p>Aggiungi il primo con il pulsante <b>Nuovo</b>: nome, cognome, telefono e i trattamenti che fa. Chi ha il link della rubrica lo vedrà subito sul proprio telefono.</p>${state.canWrite ? '<button class="btn primary" type="button" data-new>Aggiungi il primo cliente</button>' : ''}</div>`;
+      return;
+    }
+    const rows = filtered();
+    if (!rows.length) {
+      list.innerHTML = `<div class="empty"><h2>Nessun risultato</h2><p>Prova con un altro nome o con le ultime cifre del numero.</p></div>`;
+      return;
+    }
+    list.innerHTML = rows.map(c => {
+      const last = sortedTreatments(c)[0];
+      const sec = sectionName(c.sezione);
+      const wa = waLink(c), tel = telLink(c);
+      return `<article class="card">
+        <button class="card-main" type="button" data-open="${esc(c.id)}">
+          <span class="avatar" aria-hidden="true">${esc(initials(c).toUpperCase())}</span>
+          <span class="who">
+            <span class="name">${esc(fullName(c))}${sec ? `<span class="pill">${esc(sec)}</span>` : ''}</span>
+            ${c.telefono ? `<span class="phone">${esc(c.telefono)}</span>` : ''}
+            ${last ? `<span class="last">${esc(last.testo)} <em>· ${esc(fmtDate(last.data))}</em></span>` : ''}
+          </span>
+        </button>
+        <div class="actions">
+          ${wa ? `<a class="btn wa small" href="${esc(wa)}" target="_blank" rel="noopener">${ICON_WA}WhatsApp</a>` : ''}
+          ${tel ? `<a class="btn small" href="${esc(tel)}" aria-label="Chiama ${esc(fullName(c))}">${ICON_TEL}Chiama</a>` : ''}
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  // ---------- Scheda cliente ----------
+  let sheet = null; // { kind: 'contact', id, isNew, draft, dirty, confirmDelete } | { kind: 'sections' }
+
+  function openContact(id) {
+    const c = id ? state.contacts.find(x => x.id === id) : null;
+    const draft = c ? JSON.parse(JSON.stringify(c)) : { nome: '', cognome: '', telefono: '', sezione: state.filter !== 'all' && state.filter !== 'none' ? state.filter : '', note: '', trattamenti: [] };
+    delete draft.id;
+    sheet = { kind: 'contact', id: id || uid(), isNew: !c, draft, dirty: false, confirmDelete: false, confirmClose: false };
+    showSheet();
+    if (!c) setTimeout(() => $('#f-nome')?.focus(), 30);
+  }
+
+  function treatmentSuggestions() {
+    const set = new Set();
+    state.contacts.forEach(c => (c.trattamenti || []).forEach(t => t.testo && set.add(t.testo.trim())));
+    return [...set].sort((a, b) => a.localeCompare(b, 'it')).slice(0, 200);
+  }
+
+  function renderContactSheet() {
+    const d = sheet.draft, ro = !state.canWrite;
+    const trs = sortedTreatments(d);
+    const wa = waLink(d), tel = telLink(d);
+    return `
+      <div class="sheet-head">
+        <h2 id="sheetTitle">${sheet.isNew ? 'Nuovo cliente' : esc(fullName(d))}</h2>
+        <button class="x" type="button" data-close aria-label="Chiudi">×</button>
+      </div>
+      <div class="grid2">
+        <label class="f">Nome<input id="f-nome" data-field="nome" value="${esc(d.nome)}" autocomplete="off" ${ro ? 'readonly' : ''}></label>
+        <label class="f">Cognome<input id="f-cognome" data-field="cognome" value="${esc(d.cognome)}" autocomplete="off" ${ro ? 'readonly' : ''}></label>
+        <label class="f">Telefono<input id="f-telefono" data-field="telefono" type="tel" inputmode="tel" value="${esc(d.telefono)}" placeholder="333 123 4567" autocomplete="off" ${ro ? 'readonly' : ''}></label>
+        <label class="f">Sezione<select id="f-sezione" data-field="sezione" ${ro ? 'disabled' : ''}>
+          <option value="">Nessuna</option>
+          ${state.sections.map(s => `<option value="${esc(s.id)}" ${s.id === d.sezione ? 'selected' : ''}>${esc(s.nome)}</option>`).join('')}
+        </select></label>
+      </div>
+      ${d.telefono ? `<div class="contact-links">
+        ${wa ? `<a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">${ICON_WA}Scrivi su WhatsApp</a>` : ''}
+        ${tel ? `<a class="btn" href="${esc(tel)}">${ICON_TEL}Chiama</a>` : ''}
+        <button class="btn" type="button" data-copy>Copia numero</button>
+      </div>` : `<p class="hint">Senza prefisso il numero viene trattato come italiano (+39). Per l'estero scrivi il prefisso, es. +41.</p>`}
+      <section class="tr">
+        <h3>Trattamenti</h3>
+        ${ro ? '' : `<div class="tr-add">
+          <input id="tr-text" list="tr-sugg" placeholder="Es. colore e piega, pulizia viso, semipermanente" autocomplete="off" aria-label="Trattamento">
+          <input id="tr-date" type="date" value="${today()}" aria-label="Data">
+          <button class="btn" type="button" data-add-tr>Aggiungi</button>
+          <datalist id="tr-sugg">${treatmentSuggestions().map(t => `<option value="${esc(t)}"></option>`).join('')}</datalist>
+        </div>`}
+        <ul class="tr-list">
+          ${trs.length ? trs.map(t => `<li><span class="d">${esc(fmtDate(t.data))}</span><span class="t">${esc(t.testo)}</span>${ro ? '' : `<button type="button" data-del-tr="${esc(t.id)}" aria-label="Togli trattamento">×</button>`}</li>`).join('') : '<li class="tr-empty">Nessun trattamento segnato.</li>'}
+        </ul>
+      </section>
+      <label class="f">Note<textarea id="f-note" data-field="note" placeholder="Allergie, preferenze, colore usato…" ${ro ? 'readonly' : ''}>${esc(d.note)}</textarea></label>
+      <div class="dirty" id="dirtyNote" ${sheet.dirty ? '' : 'hidden'}>${sheet.confirmClose ? 'Ci sono modifiche non salvate. Premi di nuovo × per chiudere senza salvare.' : 'Modifiche non ancora salvate.'}</div>
+      ${ro ? '' : `<div class="sheet-foot">
+        ${sheet.isNew ? '' : `<button class="btn danger ${sheet.confirmDelete ? 'armed' : ''}" type="button" data-delete>${sheet.confirmDelete ? 'Conferma: elimina cliente' : 'Elimina'}</button>`}
+        <div class="right">
+          <button class="btn" type="button" data-close>Annulla</button>
+          <button class="btn primary" type="button" data-save>Salva</button>
+        </div>
+      </div>`}`;
+  }
+
+  function renderSectionsSheet() {
+    return `
+      <div class="sheet-head">
+        <h2 id="sheetTitle">Sezioni</h2>
+        <button class="x" type="button" data-close aria-label="Chiudi">×</button>
+      </div>
+      <p class="hint">Le sezioni dividono la rubrica, per esempio Estetica e Parrucchiere. Se togli una sezione, i suoi clienti restano in rubrica senza sezione.</p>
+      <ul class="sec-list">
+        ${state.sections.map(s => `<li>
+          <input id="sec-${esc(s.id)}" value="${esc(s.nome)}" data-rename="${esc(s.id)}" aria-label="Nome sezione">
+          <button class="btn small danger ${sheet.confirmDel === s.id ? 'armed' : ''}" type="button" data-del-sec="${esc(s.id)}">${sheet.confirmDel === s.id ? 'Conferma' : 'Togli'}</button>
+        </li>`).join('') || '<li class="hint">Nessuna sezione per ora.</li>'}
+      </ul>
+      <form class="sec-add" id="secAdd">
+        <input id="sec-new" placeholder="Nuova sezione, es. Unghie" autocomplete="off" aria-label="Nuova sezione">
+        <button class="btn primary" type="submit">Aggiungi</button>
+      </form>`;
+  }
+
+  function showSheet() {
+    const el = $('#sheet');
+    const focusId = document.activeElement && el.contains(document.activeElement) ? document.activeElement.id : null;
+    el.innerHTML = sheet.kind === 'contact' ? renderContactSheet() : renderSectionsSheet();
+    $('#overlay').hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (focusId) document.getElementById(focusId)?.focus();
+  }
+  function closeSheet() {
+    sheet = null;
+    $('#overlay').hidden = true;
+    document.body.style.overflow = '';
+  }
+  function refreshOpenSheet() {
+    // Se un'altra persona modifica lo stesso cliente mentre la scheda è aperta senza modifiche, aggiorna.
+    if (sheet && sheet.kind === 'contact' && !sheet.dirty && !sheet.isNew) {
+      const c = state.contacts.find(x => x.id === sheet.id);
+      if (!c) { closeSheet(); toast('Questo cliente è stato eliminato da un altro dispositivo.'); return; }
+      sheet.draft = JSON.parse(JSON.stringify(c)); delete sheet.draft.id;
+      showSheet();
+    } else if (sheet && sheet.kind === 'sections') showSheet();
+  }
+
+  async function saveContact() {
+    const d = sheet.draft;
+    d.nome = d.nome.trim(); d.cognome = d.cognome.trim(); d.telefono = d.telefono.trim(); d.note = (d.note || '').trim();
+    if (!d.nome && !d.cognome) { toast('Scrivi almeno il nome o il cognome.', true); $('#f-nome')?.focus(); return; }
+    const pending = $('#tr-text')?.value.trim();
+    if (pending) addTreatment(); // aggiunge anche il trattamento scritto ma non confermato
+    d.aggiornato = new Date().toISOString();
+    if (sheet.isNew) d.creato = d.aggiornato;
+    const id = sheet.id;
+    const ok = await writeOp(() => backend.saveContact(id, { ...d }), 'Cliente salvato');
+    if (ok) closeSheet();
+  }
+
+  function addTreatment() {
+    const txt = $('#tr-text').value.trim();
+    if (!txt) { $('#tr-text').focus(); return; }
+    const date = $('#tr-date').value || today();
+    sheet.draft.trattamenti = [...(sheet.draft.trattamenti || []), { id: uid(), testo: txt, data: date }];
+    sheet.dirty = true;
+    showSheet();
+    $('#tr-text')?.focus();
+  }
+
+  // ---------- Eventi ----------
+  document.addEventListener('click', async e => {
+    const t = e.target.closest('button, a');
+    if (!t) { if (e.target === $('#overlay')) tryClose(); return; }
+    if (t.matches('[data-filter]')) { state.filter = t.dataset.filter; render(); return; }
+    if (t.id === 'manageBtn') { sheet = { kind: 'sections', confirmDel: null }; showSheet(); setTimeout(() => $('#sec-new')?.focus(), 30); return; }
+    if (t.id === 'newBtn' || t.matches('[data-new]')) { openContact(null); return; }
+    if (t.matches('[data-open]')) { openContact(t.dataset.open); return; }
+    if (t.id === 'exportBtn') { exportCsv(); return; }
+    if (!sheet) return;
+    if (t.matches('[data-close]')) { tryClose(); return; }
+    if (t.matches('[data-save]')) { saveContact(); return; }
+    if (t.matches('[data-add-tr]')) { addTreatment(); return; }
+    if (t.matches('[data-del-tr]')) { sheet.draft.trattamenti = sheet.draft.trattamenti.filter(x => x.id !== t.dataset.delTr); sheet.dirty = true; showSheet(); return; }
+    if (t.matches('[data-copy]')) {
+      const num = sheet.draft.telefono;
+      try { await navigator.clipboard.writeText(num); toast('Numero copiato'); }
+      catch (err) { const i = $('#f-telefono'); i.focus(); i.select(); toast('Numero selezionato: copialo dal menu.'); }
+      return;
+    }
+    if (t.matches('[data-delete]')) {
+      if (!sheet.confirmDelete) { sheet.confirmDelete = true; showSheet(); return; }
+      const id = sheet.id;
+      if (await writeOp(() => backend.deleteContact(id), 'Cliente eliminato')) closeSheet();
+      return;
+    }
+    if (t.matches('[data-del-sec]')) {
+      const id = t.dataset.delSec;
+      if (sheet.confirmDel !== id) { sheet.confirmDel = id; showSheet(); return; }
+      sheet.confirmDel = null;
+      const ok = await writeOp(() => backend.deleteSection(id), 'Sezione tolta');
+      if (ok) for (const c of state.contacts.filter(c => c.sezione === id)) {
+        const { id: cid, ...rest } = c;
+        await writeOp(() => backend.saveContact(cid, { ...rest, sezione: '' }));
+      }
+      return;
+    }
+  });
+
+  function tryClose() {
+    if (sheet && sheet.kind === 'contact' && sheet.dirty && !sheet.confirmClose) { sheet.confirmClose = true; showSheet(); return; }
+    closeSheet();
+  }
+
+  document.addEventListener('input', e => {
+    const el = e.target;
+    if (el.id === 'q') { state.q = el.value; render(); return; }
+    if (sheet && sheet.kind === 'contact' && el.dataset.field) {
+      sheet.draft[el.dataset.field] = el.value;
+      sheet.dirty = true;
+      const note = $('#dirtyNote'); if (note) note.hidden = false;
+    }
+  });
+  document.addEventListener('change', async e => {
+    const el = e.target;
+    if (sheet && sheet.kind === 'contact' && el.dataset.field) { sheet.draft[el.dataset.field] = el.value; sheet.dirty = true; if (el.id === 'f-telefono' || el.id === 'f-nome') showSheet(); else { const n = $('#dirtyNote'); if (n) n.hidden = false; } }
+    if (sheet && sheet.kind === 'sections' && el.dataset.rename) {
+      const s = state.sections.find(x => x.id === el.dataset.rename);
+      const nome = el.value.trim();
+      if (s && nome && nome !== s.nome) await writeOp(() => backend.saveSection(s.id, { nome, ordine: s.ordine || 0 }), 'Sezione rinominata');
+    }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && sheet) tryClose();
+    if (e.key === 'Enter' && e.target.id === 'tr-text') { e.preventDefault(); addTreatment(); }
+  });
+  document.addEventListener('submit', async e => {
+    if (e.target.id !== 'secAdd') return;
+    e.preventDefault();
+    const inp = $('#sec-new'), nome = inp.value.trim();
+    if (!nome) return;
+    if (state.sections.some(s => s.nome.toLowerCase() === nome.toLowerCase())) { toast('Questa sezione esiste già.', true); return; }
+    const ok = await writeOp(() => backend.saveSection(uid(), { nome, ordine: Date.now() }), 'Sezione aggiunta');
+    if (ok && sheet) { showSheet(); $('#sec-new')?.focus(); }
+  });
+
+  // ---------- Esporta ----------
+  async function exportCsv() {
+    const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const lines = [['Nome', 'Cognome', 'Telefono', 'Sezione', 'Trattamenti', 'Note'].map(q).join(';')];
+    for (const c of filtered()) lines.push([c.nome, c.cognome, c.telefono, sectionName(c.sezione), sortedTreatments(c).map(t => `${t.data} ${t.testo}`).join(' | '), c.note].map(q).join(';'));
+    try { await downloads.save({ filename: `rubrica-salone-${today()}.csv`, data: '﻿' + lines.join('\r\n') }); }
+    catch (e) { if (e && e.code && e.code !== 'declined' && e.code !== 'cancelled') toast('Download non riuscito.', true); }
+  }
+
+  let toastTimer;
+  function toast(msg, err) {
+    const t = $('#toast');
+    t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, err ? 5000 : 2200);
+  }
+
+  // ---------- Avvio ----------
+  setMode('loading');
+  render();
+  (async () => {
+    let db = null, user = null;
+    if (window.claude && typeof window.claude.use === 'function') {
+      try { [db, user, downloads] = await Promise.all([window.claude.use('db'), window.claude.use('user'), window.claude.use('downloads')]); } catch (e) {}
+    }
+    if (db) {
+      if (user) { try { const can = await user.can('data.write'); if (can === false) state.canWrite = false; } catch (e) {} }
+      setMode('live');
+      start(dbBackend(db));
+    } else {
+      setMode('local');
+      start(localBackend());
+    }
+    render();
+  })();
+})();
+</script>
