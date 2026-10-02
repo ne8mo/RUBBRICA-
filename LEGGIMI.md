@@ -39,13 +39,16 @@ La configurazione si fa una volta sola, in circa 15 minuti.
    service cloud.firestore {
      match /databases/{database}/documents {
        match /{document=**} {
-         allow read, write: if request.auth != null;
+         allow read, write: if request.auth != null
+           && request.auth.token.email in ['santagian97@gmail.com'];
        }
      }
    }
    ```
 
-   Poi **Pubblica**. Così i contatti li vede solo chi entra con l'account del negozio.
+   Poi **Pubblica**. Così i contatti li vede solo chi entra con un account del negozio elencato nelle regole.
+4. In **Authentication → Impostazioni → Azioni utente** togli la spunta da **Abilita creazione (registrazione)**
+   e salva: così nessun estraneo può crearsi un account nel tuo progetto.
 
 ## 4. Collega l'app a Firebase
 
