@@ -1,3 +1,9 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#141922">
 <title>Agenda a Tre</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,7 +29,7 @@
 
 *{box-sizing:border-box}
 html,body{height:100%}
-body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.45;padding-inline:16px;padding-block:16px}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.45;padding-inline:16px;padding-block:calc(16px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-bottom,0px))}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -140,7 +146,7 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
 .kv{display:grid;gap:6px}
 .kv div{display:flex;align-items:center;gap:8px;min-width:0}
 .kv .v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
-.kv .k{width:58px;flex:none}
+.kv .k{width:76px;flex:none}
 .actions{display:flex;flex-wrap:wrap;gap:6px}
 .next{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center}
 .next i{width:7px;height:7px;border-radius:50%;background:var(--c)}
@@ -188,7 +194,9 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion:no-preference){.ev,.btn,.person{transition:background-color .15s}.modal{animation:pop .16s ease-out}@keyframes pop{from{transform:translateY(6px);opacity:.6}}}
 </style>
-
+<script src="firebase-config.js"></script>
+</head>
+<body>
 <div class="app" id="app">
   <header class="top">
     <div class="brand"><h1>Agenda a Tre</h1><span class="dots" id="brandDots"><i></i><i></i><i></i></span></div>
@@ -319,7 +327,7 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
     watch(col, cb) {
       if (this.db) {
         this.db.collection(col).onSnapshot(s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))),
-          e => { if (e.code === "revoked") banner("Accesso all'agenda revocato."); });
+          e => banner(e.code === "permission-denied" ? "Il database non dà accesso a questa agenda: controlla il codice o le regole di Firebase." : "Connessione al database interrotta. Ricarica la pagina."));
       } else {
         (this.listeners[col] ||= []).push(cb); cb(this._read(col));
       }
@@ -339,8 +347,8 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
   async function save(fn, okMsg) {
     try { await fn(); if (okMsg) toast(okMsg); return true; }
     catch (e) {
-      if (e?.code === "invalid_argument") toast("Non hai il permesso di modificare questa agenda.");
-      else if (e?.code === "quota_exceeded") toast("Spazio esaurito: elimina qualche voce vecchia.");
+      if (e?.code === "permission-denied") toast("Il database ha rifiutato il salvataggio: controlla le regole di Firebase.");
+      else if (e?.code === "resource-exhausted") toast("Limite gratuito di Firebase raggiunto per oggi.");
       else toast("Salvataggio non riuscito. Riprova tra poco.");
       return false;
     }
@@ -681,7 +689,11 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
           if (!name.value.trim()) { err.textContent = "Scrivi il tuo nome."; return; }
           const body = { name: name.value.trim(), color, uid: S.myUid || prof(slot)?.uid || null, updatedAt: Date.now() };
           if (await save(() => store.set("profiles", slot, body), editing ? "Profilo aggiornato" : "Ciao " + body.name + "!")) { ls.set("agenda3.me", slot); S.me = slot; close(); render(); }
-        } }, el("div", { class: "f" }, el("span", { class: "label" }, "Posto"), slotsBox), field("Nome", name), el("div", { class: "f" }, el("span", { class: "label" }, "Colore identificativo"), sw), err,
+        } }, el("div", { class: "f" }, el("span", { class: "label" }, "Posto"), slotsBox), field("Nome", name), el("div", { class: "f" }, el("span", { class: "label" }, "Colore identificativo"), sw),
+          S.code && el("div", { class: "f" }, el("span", { class: "label" }, "Link da inviare alle altre persone"),
+            el("div", { class: "contact-strip" }, el("div", { class: "who" }, el("small", {}, S.shareLink())), el("button", { type: "button", class: "btn sm", html: ICON.copy + "<span>Copia link</span>", onclick: () => copy(S.shareLink()) }),
+              el("a", { class: "btn sm wa", href: "https://wa.me/?text=" + encodeURIComponent("Ecco la nostra agenda: " + S.shareLink()), target: "_blank", rel: "noopener", html: ICON.wa + "<span>Invia</span>" }))),
+          err,
           el("div", { class: "foot" }, editing && el("button", { type: "button", class: "btn ghost", onclick: () => { ls.set("agenda3.me", ""); S.me = null; close(); render(); openOnboarding(); } }, "Cambia persona"), el("span", { class: "sp" }), el("button", { class: "btn primary", type: "submit" }, editing ? "Salva" : "Entra nell'agenda"))));
     }, { locked: !editing && !S.me });
   }
@@ -705,11 +717,44 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
   render();
 
   /* ---------- avvio ---------- */
+  const loadScript = src => new Promise((ok, ko) => document.head.append(el("script", { src, onload: ok, onerror: ko })));
+  const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+  function agendaCode() {
+    const h = decodeURIComponent(location.hash.slice(1));
+    if (/^[A-Za-z0-9_-]{12,64}$/.test(h)) { ls.set("agenda3.code", h); return h; }
+    const c = ls.get("agenda3.code");
+    return c && /^[A-Za-z0-9_-]{12,64}$/.test(c) ? c : null;
+  }
+  S.shareLink = () => location.href.split("#")[0] + "#" + S.code;
+  function askCode() {
+    return new Promise(resolve => modal((box, close) => {
+      const inp = el("input", { id: "codeIn", placeholder: "Incolla il link o il codice ricevuto" });
+      const err = el("div", { class: "err", role: "alert" });
+      box.append(el("h2", {}, "Benvenuto"),
+        el("p", { class: "muted", style: "margin:0" }, "Se un collega ti ha mandato il link dell'agenda, incollalo qui. Se sei il primo, crea una nuova agenda e poi invia il link agli altri due."),
+        el("form", { class: "fields", onsubmit: e => {
+          e.preventDefault();
+          const v = inp.value.trim().split("#").pop();
+          if (!/^[A-Za-z0-9_-]{12,64}$/.test(v)) { err.textContent = "Il codice non è valido: copia l'intero link che ti è stato inviato."; return; }
+          close(); resolve(v);
+        } }, field("Link o codice dell'agenda", inp), err,
+          el("div", { class: "foot" }, el("button", { type: "button", class: "btn", onclick: () => { close(); resolve(uid() + uid()); } }, "Crea nuova agenda"), el("span", { class: "sp" }), el("button", { class: "btn primary", type: "submit" }, "Entra"))));
+    }, { locked: true }));
+  }
   async function boot() {
-    let db = null, user = null;
-    try { [db, user] = await Promise.all([window.claude?.use?.("db") ?? null, window.claude?.use?.("user") ?? null]); } catch {}
-    if (db) { store.db = db; S.myUid = user ? await user.id() : null; }
-    else { store.local = true; banner("Modalità locale: i dati restano solo su questo dispositivo. Apri l'agenda da claude.ai per condividerla con le altre persone."); }
+    const cfg = window.FIREBASE_CONFIG;
+    if (cfg && cfg.projectId) {
+      try {
+        await loadScript(FB + "firebase-app-compat.js"); await loadScript(FB + "firebase-firestore-compat.js");
+        firebase.initializeApp(cfg);
+        let code = agendaCode() || await askCode();
+        S.code = code; ls.set("agenda3.code", code);
+        if (location.hash.slice(1) !== code) history.replaceState(null, "", "#" + code);
+        const root = firebase.firestore().collection("agende").doc(code);
+        store.db = { collection: c => root.collection(c) };
+      } catch { banner("Non riesco a collegarmi a Firebase: controlla la connessione e il file firebase-config.js."); }
+    }
+    if (!store.db) { store.local = true; if (!cfg || !cfg.projectId) banner("Modalità prova: i dati restano solo su questo dispositivo. Per condividere l'agenda con le altre due persone, collega Firebase (istruzioni nel file LEGGIMI.md)."); }
     let first = true;
     store.watch("profiles", rows => {
       S.profiles = {}; rows.forEach(r => { if (SLOTS.includes(r.id)) S.profiles[r.id] = r; });
@@ -722,3 +767,5 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
   boot();
 })();
 </script>
+</body>
+</html>
