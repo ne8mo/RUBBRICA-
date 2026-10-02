@@ -327,7 +327,7 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
     watch(col, cb) {
       if (this.db) {
         this.db.collection(col).onSnapshot(s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))),
-          e => banner(e.code === "permission-denied" ? "Questo account non è autorizzato a usare l'agenda. Chiedi a chi la gestisce di aggiungere la tua email." : "Connessione al database interrotta. Ricarica la pagina."));
+          e => banner(e.code === "permission-denied" ? "Questo accesso non è autorizzato a usare l'agenda: controlla le regole di Firebase." : "Connessione al database interrotta. Ricarica la pagina."));
       } else {
         (this.listeners[col] ||= []).push(cb); cb(this._read(col));
       }
@@ -347,7 +347,7 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
   async function save(fn, okMsg) {
     try { await fn(); if (okMsg) toast(okMsg); return true; }
     catch (e) {
-      if (e?.code === "permission-denied") toast("Il tuo account non è autorizzato a modificare l'agenda.");
+      if (e?.code === "permission-denied") toast("Questo accesso non è autorizzato a modificare l'agenda.");
       else if (e?.code === "resource-exhausted") toast("Limite gratuito di Firebase raggiunto per oggi.");
       else toast("Salvataggio non riuscito. Riprova tra poco.");
       return false;
@@ -690,13 +690,11 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
           const body = { name: name.value.trim(), color, uid: S.myUid || prof(slot)?.uid || null, updatedAt: Date.now() };
           if (await save(() => store.set("profiles", slot, body), editing ? "Profilo aggiornato" : "Ciao " + body.name + "!")) { ls.set("agenda3.me", slot); S.me = slot; close(); render(); }
         } }, el("div", { class: "f" }, el("span", { class: "label" }, "Posto"), slotsBox), field("Nome", name), el("div", { class: "f" }, el("span", { class: "label" }, "Colore identificativo"), sw),
-          editing && S.auth && el("div", { class: "f" }, el("span", { class: "label" }, "Account"),
-            el("div", { class: "contact-strip" }, el("div", { class: "who" }, el("b", {}, "Accesso come"), el("small", {}, S.email || "")),
-              el("button", { type: "button", class: "btn sm", onclick: async () => { try { await S.auth.sendPasswordResetEmail(S.email); toast("Ti ho inviato un'email per cambiare la password"); } catch { toast("Invio non riuscito. Riprova tra poco."); } } }, "Cambia password"))),
+          editing && S.auth && el("div", { class: "f" }, el("span", { class: "label" }, "Password dell'agenda"), passwordChanger()),
           err,
           el("div", { class: "foot" },
             editing && S.auth && el("button", { type: "button", class: "btn ghost danger", onclick: async () => { await S.auth.signOut(); location.reload(); } }, "Esci"),
-            editing && !S.auth && el("button", { type: "button", class: "btn ghost", onclick: () => { ls.set("agenda3.me", ""); S.me = null; close(); render(); openOnboarding(); } }, "Cambia persona"),
+            editing && el("button", { type: "button", class: "btn ghost", onclick: () => { ls.set("agenda3.me", ""); S.me = null; close(); render(); openOnboarding(); } }, "Cambia persona"),
             el("span", { class: "sp" }), el("button", { class: "btn primary", type: "submit" }, editing ? "Salva" : "Entra nell'agenda"))));
     }, { locked: !editing && !S.me });
   }
@@ -722,32 +720,44 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
   /* ---------- avvio ---------- */
   const loadScript = src => new Promise((ok, ko) => document.head.append(el("script", { src, onload: ok, onerror: ko })));
   const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+  // Firebase vuole un indirizzo email: il nome utente viene trasformato in un indirizzo interno, mai usato per scrivere.
+  const USER_DOMAIN = "agenda-a-tre.app";
+  const toLogin = u => { u = u.trim().toLowerCase(); return u.includes("@") ? u : u + "@" + USER_DOMAIN; };
   const AUTH_ERR = {
-    "auth/invalid-credential": "Email o password non corretti.", "auth/wrong-password": "Email o password non corretti.",
-    "auth/user-not-found": "Email o password non corretti.", "auth/invalid-email": "L'indirizzo email non è valido.",
-    "auth/too-many-requests": "Troppi tentativi. Aspetta qualche minuto o reimposta la password.",
-    "auth/user-disabled": "Questo account è stato disattivato.", "auth/network-request-failed": "Nessuna connessione a internet."
+    "auth/invalid-credential": "Nome utente o password non corretti.", "auth/wrong-password": "Nome utente o password non corretti.",
+    "auth/user-not-found": "Nome utente o password non corretti.", "auth/invalid-email": "Il nome utente può contenere solo lettere, numeri, punti e trattini.",
+    "auth/too-many-requests": "Troppi tentativi sbagliati. Aspetta qualche minuto e riprova.",
+    "auth/user-disabled": "Questo accesso è stato disattivato.", "auth/network-request-failed": "Nessuna connessione a internet.",
+    "auth/weak-password": "La password deve avere almeno 6 caratteri.",
+    "auth/requires-recent-login": "Per sicurezza esci, rientra e poi cambia la password."
   };
+  function passwordChanger() {
+    const np = el("input", { id: "pwNew", type: "password", autocomplete: "new-password", placeholder: "Nuova password (almeno 6 caratteri)" });
+    const msg = el("div", { class: "err", role: "alert" });
+    const btn = el("button", { type: "button", class: "btn sm", onclick: async () => {
+      msg.textContent = "";
+      if (np.value.length < 6) { msg.textContent = "La password deve avere almeno 6 caratteri."; return; }
+      try { await S.auth.currentUser.updatePassword(np.value); np.value = ""; toast("Password cambiata: comunicala alle altre due persone"); }
+      catch (x) { msg.textContent = AUTH_ERR[x.code] || "Cambio non riuscito. Riprova."; }
+    } }, "Cambia");
+    return el("div", { class: "sub" }, el("p", { class: "muted", style: "margin:0;font-size:13px" }, "È la stessa per tutti e tre: se la cambi, avvisa gli altri."),
+      el("div", { style: "display:flex;gap:6px" }, np, btn), msg);
+  }
   function openLogin(auth) {
     modal(box => {
-      const email = el("input", { id: "lgEmail", type: "email", autocomplete: "username", placeholder: "nome@esempio.it", required: true, value: ls.get("agenda3.email") || "" });
-      const pass = el("input", { id: "lgPass", type: "password", autocomplete: "current-password", placeholder: "La tua password", required: true });
+      const user = el("input", { id: "lgUser", autocomplete: "username", autocapitalize: "none", spellcheck: "false", placeholder: "Nome utente", required: true, value: ls.get("agenda3.user") || "" });
+      const pass = el("input", { id: "lgPass", type: "password", autocomplete: "current-password", placeholder: "Password", required: true });
       const show = el("button", { type: "button", class: "btn sm ghost", onclick: () => { pass.type = pass.type === "password" ? "text" : "password"; show.textContent = pass.type === "password" ? "Mostra" : "Nascondi"; } }, "Mostra");
       const err = el("div", { class: "err", role: "alert" });
       const go = el("button", { class: "btn primary", type: "submit" }, "Accedi");
       box.append(el("div", { class: "mh" }, el("h2", {}, "Accedi all'agenda")),
-        el("p", { class: "muted", style: "margin:0" }, "Entra con l'email e la password del tuo account. Gli account li crea chi gestisce l'agenda."),
+        el("p", { class: "muted", style: "margin:0" }, "Nome utente e password sono gli stessi per tutte e tre le persone."),
         el("form", { class: "fields", onsubmit: async e => {
           e.preventDefault(); err.textContent = ""; go.disabled = true; go.textContent = "Accesso in corso…";
-          try { await auth.signInWithEmailAndPassword(email.value.trim(), pass.value); ls.set("agenda3.email", email.value.trim()); }
+          try { await auth.signInWithEmailAndPassword(toLogin(user.value), pass.value); ls.set("agenda3.user", user.value.trim()); }
           catch (x) { err.textContent = AUTH_ERR[x.code] || "Accesso non riuscito. Riprova."; go.disabled = false; go.textContent = "Accedi"; }
-        } }, field("Email", email), el("label", { class: "f" }, el("span", { class: "label" }, "Password"), el("div", { style: "display:flex;gap:6px" }, pass, show)), err,
-          el("div", { class: "foot" }, el("button", { type: "button", class: "btn ghost", onclick: async () => {
-            err.textContent = "";
-            if (!email.value.trim() || !email.checkValidity()) { err.textContent = "Scrivi prima la tua email, poi tocca di nuovo qui."; return; }
-            try { await auth.sendPasswordResetEmail(email.value.trim()); toast("Se l'email è registrata, riceverai il link per scegliere la password."); }
-            catch (x) { err.textContent = AUTH_ERR[x.code] || "Invio non riuscito. Riprova tra poco."; }
-          } }, "Password dimenticata?"), el("span", { class: "sp" }), go)));
+        } }, field("Nome utente", user), el("label", { class: "f" }, el("span", { class: "label" }, "Password"), el("div", { style: "display:flex;gap:6px" }, pass, show)), err,
+          el("div", { class: "foot" }, el("span", { class: "sp" }), go)));
     }, { locked: true });
   }
   function startWatching() {
@@ -775,7 +785,7 @@ h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:
         if (!u) { if (started) location.reload(); else openLogin(auth); return; }
         if (started) return;
         started = true; $("layer").replaceChildren();
-        S.myUid = u.uid; S.email = u.email;
+        S.myUid = null; // account condiviso: la persona si sceglie dopo l'accesso
         store.db = { collection: c => root.collection(c) };
         startWatching();
       });

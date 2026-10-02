@@ -4,33 +4,36 @@ Agenda di appuntamenti condivisa da tre persone, ognuna con il suo colore, con r
 (nome, cognome, email, telefono) e collegamenti diretti a email e WhatsApp.
 
 Il sito è fatto solo di file statici (`agenda/index.html`). I dati condivisi stanno su
-**Firebase Firestore** e l'accesso è protetto da **email e password** (Firebase Authentication),
-entrambi gratuiti per questo uso. Senza Firebase l'agenda funziona in modalità prova:
-nessuna password e dati salvati solo sul dispositivo.
+**Firebase Firestore** e l'accesso è protetto da **un nome utente e una password uguali per tutti e tre**
+(Firebase Authentication), entrambi gratuiti per questo uso. Senza Firebase l'agenda funziona in
+modalità prova: nessuna password e dati salvati solo sul dispositivo.
 
 ## Come è protetto l'accesso
 
-- Si entra solo con email e password. Dal sito nessuno può registrarsi da solo: gli account li crei tu.
-- Anche con un account valido, il database risponde solo alle tre email scritte in `agenda/firestore.rules`.
-  Il controllo lo fa il server di Firebase, quindi non si aggira modificando la pagina.
-- Ognuno sceglie la propria password con il link "Password dimenticata?" e può cambiarla dal suo profilo.
+- Si entra con un solo nome utente e una sola password, condivisi dalle tre persone.
+- Dopo l'accesso ognuno sceglie chi è (nome e colore): il telefono o il computer se lo ricorda.
+- Dal sito nessuno può creare altri accessi, e il database risponde solo a quello indicato in
+  `agenda/firestore.rules`. Il controllo lo fa il server di Firebase, quindi non si aggira modificando la pagina.
+- La password si cambia dal profilo (tocca il tuo nome in alto). Poi va comunicata agli altri due.
 
-## 1. Crea il database e gli account (una volta sola, circa 15 minuti)
+## 1. Crea il database e l'accesso (una volta sola, circa 15 minuti)
 
 1. Vai su <https://console.firebase.google.com> e crea un progetto (Google Analytics non serve).
 2. **Build → Firestore Database → Crea database**: sede europea (es. `eur3`), **modalità produzione**.
 3. **Build → Authentication → Inizia → Email/password**: attiva solo la prima opzione e salva.
-4. **Authentication → Utenti → Aggiungi utente**: crea i tre account con le loro email
-   e una password provvisoria qualsiasi.
+4. **Authentication → Utenti → Aggiungi utente**:
+   - Email: `agenda@agenda-a-tre.app` (la parte prima della @ è il **nome utente**: qui `agenda`).
+     Non è un indirizzo vero e non riceve posta: serve solo a Firebase.
+   - Password: quella che userete in tre (almeno 6 caratteri).
 5. **Authentication → Impostazioni → Azioni utente**: togli la spunta da **Abilita creazione (registrazione)**,
-   così nessun altro può creare account.
-6. Apri `agenda/firestore.rules`, sostituisci le tre email di esempio con quelle vere,
-   poi copia tutto in **Firestore → Regole** e premi **Pubblica**.
+   così nessun altro può creare accessi.
+6. Copia il contenuto di `agenda/firestore.rules` in **Firestore → Regole** e premi **Pubblica**.
+   Se hai scelto un nome utente diverso da `agenda`, cambialo anche nelle regole.
 7. **Impostazioni progetto** (ingranaggio) → **Le tue app** → icona `</>` (app web) → registra l'app
    e copia l'oggetto `firebaseConfig`.
 8. Apri `agenda/firebase-config.js` e sostituisci `window.FIREBASE_CONFIG = null;`
    con `window.FIREBASE_CONFIG = { ...i valori copiati... };`.
-   Questi valori non sono segreti: la protezione sta nelle password e nelle regole.
+   Questi valori non sono segreti: la protezione sta nella password e nelle regole.
 
 ## 2. Pubblica il sito con GitHub Pages
 
@@ -41,8 +44,9 @@ nessuna password e dati salvati solo sul dispositivo.
 
 ## 3. Primo accesso di ogni persona
 
-1. Apre il sito, scrive la sua email e tocca **Password dimenticata?**.
-2. Riceve un'email con il link per scegliere la propria password.
-3. Entra con email e password, sceglie un posto libero, scrive il nome e prende un colore.
+1. Apre il sito e inserisce nome utente e password.
+2. Sceglie un posto libero, scrive il suo nome e prende un colore.
 
-Per uscire, o per cambiare la password, basta toccare il proprio nome in alto.
+Per uscire, cambiare persona o cambiare la password, basta toccare il proprio nome in alto.
+Se la password viene dimenticata, si reimposta da Firebase: **Authentication → Utenti → ⋮ → Reimposta password**
+non funziona con un indirizzo finto, quindi elimina l'utente e ricrealo con la nuova password.
