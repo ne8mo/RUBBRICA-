@@ -1,4 +1,15 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Rubrica Salone</title>
+<meta name="theme-color" content="#7a2e4f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rubrica">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600&display=swap">
@@ -42,6 +53,9 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
 body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -66,7 +80,7 @@ header.top {
 .search input { width: 100%; padding: 11px 12px 11px 38px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
 .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; stroke: var(--muted); fill: none; }
 
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); padding: 9px 14px; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: .9rem; text-decoration: none; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 9px 14px; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: .9rem; text-decoration: none; white-space: nowrap; }
 .btn:hover { border-color: var(--muted); }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .btn.primary:hover { filter: brightness(1.08); }
@@ -149,11 +163,20 @@ label.f textarea { resize: vertical; min-height: 64px; }
 .footer-tools { margin-top: 22px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .ro { font-size: .78rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
 
+.login { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: grid; place-items: center; padding: 16px; }
+.login form { width: 100%; max-width: 360px; display: grid; gap: 12px; }
+.login h1 { font-family: var(--font-display); margin: 0 0 4px; font-size: 1.8rem; }
+.login h1 span { color: var(--accent); }
+.login .err { color: var(--danger); font-size: .88rem; margin: 0; }
+.linkbtn { border: 0; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: .82rem; padding: 4px; }
+
 @media (prefers-reduced-motion: no-preference) {
   .sheet { animation: up .18s ease-out; }
   @keyframes up { from { transform: translateY(16px); opacity: .6; } to { transform: none; opacity: 1; } }
 }
 </style>
+</head>
+<body>
 
 <div class="wrap">
   <header class="top">
@@ -175,13 +198,14 @@ label.f textarea { resize: vertical; min-height: 64px; }
   </header>
 
   <div class="banner" id="localBanner" hidden>
-    Modalità locale: i contatti restano solo su questo dispositivo. Apri la rubrica dal link condiviso su claude.ai per vederla uguale su tutti i telefoni del negozio.
+    Modalità prova: i contatti restano solo su questo dispositivo. Per condividerli con tutto il negozio completa la configurazione di Firebase (vedi LEGGIMI.md).
   </div>
 
   <main class="list" id="list" aria-live="polite"></main>
 
   <div class="footer-tools">
     <button class="btn small" id="exportBtn" type="button" hidden>Scarica elenco (CSV)</button>
+    <button class="linkbtn" id="logoutBtn" type="button" hidden>Esci da questo dispositivo</button>
   </div>
 </div>
 
@@ -189,7 +213,22 @@ label.f textarea { resize: vertical; min-height: 64px; }
   <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
 </div>
 
+<div class="login" id="login" hidden>
+  <form id="loginForm">
+    <h1>Rubrica <span>Salone</span></h1>
+    <p class="hint">Entra con l'account del negozio. Basta farlo una volta per dispositivo.</p>
+    <label class="f">Email<input id="l-email" type="email" autocomplete="username" required></label>
+    <label class="f">Password<input id="l-pass" type="password" autocomplete="current-password" required></label>
+    <p class="err" id="loginErr" hidden></p>
+    <button class="btn primary" type="submit" id="loginBtn">Entra</button>
+  </form>
+</div>
+
 <div class="toast" id="toast" role="status" hidden></div>
+<script src="config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script>
 (() => {
@@ -225,7 +264,6 @@ label.f textarea { resize: vertical; min-height: 64px; }
 
   const state = { contacts: [], sections: [], filter: 'all', q: '', mode: 'loading', canWrite: true };
   let backend = null;
-  let downloads = null;
 
   // ---------- Archivio: condiviso (db) oppure locale ----------
   function localBackend() {
@@ -248,24 +286,27 @@ label.f textarea { resize: vertical; min-height: 64px; }
       async deleteSection(id) { delete data.sections[id]; persist(); },
     };
   }
-  function dbBackend(db) {
+  function firebaseBackend(fs) {
+    const done = p => p; // con la cache offline la promessa si chiude quando il server conferma
     return {
       subscribe(c, s, err) {
-        db.collection('contacts').onSnapshot(snap => c(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err);
-        db.collection('sections').onSnapshot(snap => s(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err);
+        unsubs.push(fs.collection('contacts').onSnapshot(snap => c(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err));
+        unsubs.push(fs.collection('sections').onSnapshot(snap => s(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err));
       },
-      saveContact: (id, d) => db.doc('contacts/' + id).set(d),
-      deleteContact: id => db.doc('contacts/' + id).delete(),
-      saveSection: (id, d) => db.doc('sections/' + id).set(d),
-      deleteSection: id => db.doc('sections/' + id).delete(),
+      saveContact: (id, d) => done(fs.collection('contacts').doc(id).set(d)),
+      deleteContact: id => done(fs.collection('contacts').doc(id).delete()),
+      saveSection: (id, d) => done(fs.collection('sections').doc(id).set(d)),
+      deleteSection: id => done(fs.collection('sections').doc(id).delete()),
     };
   }
+  const unsubs = [];
 
   function setMode(mode) {
     state.mode = mode;
     const st = $('#status');
     st.className = 'status ' + (mode === 'live' ? 'live' : mode === 'local' ? 'local' : '');
-    $('#statusText').textContent = mode === 'live' ? 'Condivisa · aggiornata in tempo reale' : mode === 'local' ? 'Solo su questo dispositivo' : 'Collegamento…';
+    $('#statusText').textContent = mode === 'live' ? (navigator.onLine ? 'Condivisa · aggiornata in tempo reale' : 'Offline · si aggiorna appena torna la rete') : mode === 'local' ? 'Solo su questo dispositivo' : 'Collegamento…';
+    $('#logoutBtn').hidden = mode !== 'live';
     $('#localBanner').hidden = mode !== 'local';
   }
 
@@ -274,18 +315,23 @@ label.f textarea { resize: vertical; min-height: 64px; }
     backend.subscribe(
       list => { state.contacts = list; render(); refreshOpenSheet(); },
       list => { state.sections = list.sort((a, b) => (a.ordine || 0) - (b.ordine || 0)); render(); },
-      e => { if (e && e.code === 'revoked') { state.canWrite = false; render(); } else toast('Aggiornamento interrotto: ricarica la pagina.', true); }
+      e => { if (e && e.code === 'permission-denied') toast('Accesso negato: esci e rientra con l\'account del negozio.', true); else toast('Aggiornamento interrotto: ricarica la pagina.', true); }
     );
   }
 
+  // Le modifiche compaiono subito; Firebase le invia appena c'è rete.
   async function writeOp(fn, okMsg) {
-    try { await fn(); if (okMsg) toast(okMsg); return true; }
-    catch (e) {
-      if (e && e.code === 'invalid_argument' && state.mode === 'live') { state.canWrite = false; render(); toast('Non hai il permesso di modificare la rubrica. Chiedi alla titolare di darti accesso come Collaboratore.', true); }
-      else if (e && e.code === 'quota_exceeded') toast('Spazio esaurito: elimina qualche contatto vecchio e riprova.', true);
-      else toast('Salvataggio non riuscito. Controlla la connessione e riprova.', true);
-      return false;
-    }
+    try {
+      const p = fn();
+      if (p && p.catch) p.catch(writeError);
+      if (okMsg) toast(okMsg);
+      return true;
+    } catch (e) { writeError(e); return false; }
+  }
+  function writeError(e) {
+    if (e && e.code === 'permission-denied') toast('Non hai il permesso di modificare la rubrica. Esci e rientra con l\'account del negozio.', true);
+    else if (e && e.code === 'resource-exhausted') toast('Limite gratuito di Firebase raggiunto per oggi. Riprova domani.', true);
+    else toast('Salvataggio non riuscito. Controlla la connessione e riprova.', true);
   }
 
   // ---------- Elenco ----------
@@ -320,7 +366,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
   function render() {
     renderChips();
     $('#newBtn').hidden = !state.canWrite;
-    $('#exportBtn').hidden = !(downloads && state.contacts.length);
+    $('#exportBtn').hidden = !state.contacts.length;
     const list = $('#list');
     if (state.mode === 'loading') {
       list.innerHTML = `<div class="empty"><p>Sto aprendo la rubrica…</p></div>`;
@@ -374,10 +420,18 @@ label.f textarea { resize: vertical; min-height: 64px; }
     return [...set].sort((a, b) => a.localeCompare(b, 'it')).slice(0, 200);
   }
 
+  function linksHtml(d) {
+    const wa = waLink(d), tel = telLink(d);
+    return d.telefono ? `<div class="contact-links">
+        ${wa ? `<a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">${ICON_WA}Scrivi su WhatsApp</a>` : ''}
+        ${tel ? `<a class="btn" href="${esc(tel)}">${ICON_TEL}Chiama</a>` : ''}
+        <button class="btn" type="button" data-copy>Copia numero</button>
+      </div>` : `<p class="hint">Senza prefisso il numero viene trattato come italiano (+39). Per l'estero scrivi il prefisso, es. +41.</p>`;
+  }
+
   function renderContactSheet() {
     const d = sheet.draft, ro = !state.canWrite;
     const trs = sortedTreatments(d);
-    const wa = waLink(d), tel = telLink(d);
     return `
       <div class="sheet-head">
         <h2 id="sheetTitle">${sheet.isNew ? 'Nuovo cliente' : esc(fullName(d))}</h2>
@@ -392,11 +446,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
           ${state.sections.map(s => `<option value="${esc(s.id)}" ${s.id === d.sezione ? 'selected' : ''}>${esc(s.nome)}</option>`).join('')}
         </select></label>
       </div>
-      ${d.telefono ? `<div class="contact-links">
-        ${wa ? `<a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">${ICON_WA}Scrivi su WhatsApp</a>` : ''}
-        ${tel ? `<a class="btn" href="${esc(tel)}">${ICON_TEL}Chiama</a>` : ''}
-        <button class="btn" type="button" data-copy>Copia numero</button>
-      </div>` : `<p class="hint">Senza prefisso il numero viene trattato come italiano (+39). Per l'estero scrivi il prefisso, es. +41.</p>`}
+      <div id="links">${linksHtml(d)}</div>
       <section class="tr">
         <h3>Trattamenti</h3>
         ${ro ? '' : `<div class="tr-add">
@@ -518,7 +568,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
       const ok = await writeOp(() => backend.deleteSection(id), 'Sezione tolta');
       if (ok) for (const c of state.contacts.filter(c => c.sezione === id)) {
         const { id: cid, ...rest } = c;
-        await writeOp(() => backend.saveContact(cid, { ...rest, sezione: '' }));
+        writeOp(() => backend.saveContact(cid, { ...rest, sezione: '' }));
       }
       return;
     }
@@ -536,11 +586,13 @@ label.f textarea { resize: vertical; min-height: 64px; }
       sheet.draft[el.dataset.field] = el.value;
       sheet.dirty = true;
       const note = $('#dirtyNote'); if (note) note.hidden = false;
+      if (el.id === 'f-telefono') $('#links').innerHTML = linksHtml(sheet.draft);
+      if ((el.id === 'f-nome' || el.id === 'f-cognome') && !sheet.isNew) $('#sheetTitle').textContent = fullName(sheet.draft);
     }
   });
   document.addEventListener('change', async e => {
     const el = e.target;
-    if (sheet && sheet.kind === 'contact' && el.dataset.field) { sheet.draft[el.dataset.field] = el.value; sheet.dirty = true; if (el.id === 'f-telefono' || el.id === 'f-nome') showSheet(); else { const n = $('#dirtyNote'); if (n) n.hidden = false; } }
+    if (sheet && sheet.kind === 'contact' && el.dataset.field) { sheet.draft[el.dataset.field] = el.value; sheet.dirty = true; const n = $('#dirtyNote'); if (n) n.hidden = false; }
     if (sheet && sheet.kind === 'sections' && el.dataset.rename) {
       const s = state.sections.find(x => x.id === el.dataset.rename);
       const nome = el.value.trim();
@@ -566,8 +618,11 @@ label.f textarea { resize: vertical; min-height: 64px; }
     const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
     const lines = [['Nome', 'Cognome', 'Telefono', 'Sezione', 'Trattamenti', 'Note'].map(q).join(';')];
     for (const c of filtered()) lines.push([c.nome, c.cognome, c.telefono, sectionName(c.sezione), sortedTreatments(c).map(t => `${t.data} ${t.testo}`).join(' | '), c.note].map(q).join(';'));
-    try { await downloads.save({ filename: `rubrica-salone-${today()}.csv`, data: '﻿' + lines.join('\r\n') }); }
-    catch (e) { if (e && e.code && e.code !== 'declined' && e.code !== 'cancelled') toast('Download non riuscito.', true); }
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `rubrica-salone-${today()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   let toastTimer;
@@ -577,23 +632,55 @@ label.f textarea { resize: vertical; min-height: 64px; }
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, err ? 5000 : 2200);
   }
 
+  // ---------- Accesso ----------
+  document.addEventListener('submit', async e => {
+    if (e.target.id !== 'loginForm') return;
+    e.preventDefault();
+    const err = $('#loginErr'), btn = $('#loginBtn');
+    err.hidden = true; btn.disabled = true; btn.textContent = 'Accesso…';
+    try { await firebase.auth().signInWithEmailAndPassword($('#l-email').value.trim(), $('#l-pass').value); }
+    catch (ex) {
+      err.textContent = ex && (ex.code === 'auth/invalid-credential' || ex.code === 'auth/wrong-password' || ex.code === 'auth/user-not-found' || ex.code === 'auth/invalid-email')
+        ? 'Email o password sbagliate.' : ex && ex.code === 'auth/network-request-failed' ? 'Nessuna connessione. Riprova quando c\'è rete.' : 'Accesso non riuscito. Riprova.';
+      err.hidden = false;
+    }
+    btn.disabled = false; btn.textContent = 'Entra';
+  });
+  document.addEventListener('click', e => {
+    if (e.target.id !== 'logoutBtn') return;
+    unsubs.splice(0).forEach(u => u());
+    firebase.auth().signOut();
+  });
+  window.addEventListener('online', () => setMode(state.mode));
+  window.addEventListener('offline', () => setMode(state.mode));
+
   // ---------- Avvio ----------
   setMode('loading');
   render();
-  (async () => {
-    let db = null, user = null;
-    if (window.claude && typeof window.claude.use === 'function') {
-      try { [db, user, downloads] = await Promise.all([window.claude.use('db'), window.claude.use('user'), window.claude.use('downloads')]); } catch (e) {}
-    }
-    if (db) {
-      if (user) { try { const can = await user.can('data.write'); if (can === false) state.canWrite = false; } catch (e) {} }
-      setMode('live');
-      start(dbBackend(db));
-    } else {
-      setMode('local');
-      start(localBackend());
-    }
-    render();
-  })();
+  const cfg = window.FIREBASE_CONFIG;
+  const configured = cfg && cfg.apiKey && !String(cfg.apiKey).includes('INSERISCI') && window.firebase;
+  if (!configured) {
+    setMode('local');
+    start(localBackend());
+  } else {
+    firebase.initializeApp(cfg);
+    const fs = firebase.firestore();
+    fs.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+    firebase.auth().onAuthStateChanged(u => {
+      $('#login').hidden = !!u;
+      if (u) {
+        state.contacts = []; state.sections = [];
+        setMode('live');
+        start(firebaseBackend(fs));
+      } else {
+        unsubs.splice(0).forEach(f => f());
+        state.contacts = []; state.sections = []; setMode('loading'); render();
+        setTimeout(() => $('#l-email')?.focus(), 30);
+      }
+    });
+  }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
+</body>
+</html>
