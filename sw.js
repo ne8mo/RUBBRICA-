@@ -1,6 +1,6 @@
 // Fa aprire l'app anche senza rete: prima prova online, altrimenti usa la copia salvata.
-const CACHE = 'rubrica-v1';
-const SHELL = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icon.svg'];
+const CACHE = 'rubrica-v2';
+const SHELL = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icon.svg', 'lib/firebase-app-compat.js', 'lib/firebase-auth-compat.js', 'lib/firebase-firestore-compat.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(self.clients.claim()); });
 self.addEventListener('fetch', e => {

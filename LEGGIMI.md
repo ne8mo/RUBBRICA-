@@ -103,3 +103,4 @@ ma i contatti restano solo sul dispositivo che stai usando.
 | `firestore.rules` | Regole di sicurezza da incollare in Firebase |
 | `manifest.webmanifest`, `icon*.png`, `icon.svg` | Nome e icona quando la installi sul telefono |
 | `sw.js` | Permette di aprire l'app anche senza rete |
+| `lib/` | Librerie di Firebase (incluse nell'app, così non dipende da altri siti) |
