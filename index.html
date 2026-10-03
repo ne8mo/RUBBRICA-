@@ -160,7 +160,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: .9rem; z-index: 40; box-shadow: var(--shadow); max-width: calc(100% - 32px); }
 .toast.err { background: var(--danger); color: var(--surface); }
 
-.footer-tools { margin-top: 22px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.footer-tools { margin-top: 22px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; flex-direction: column; }
 .ro { font-size: .78rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
 
 .login { position: fixed; inset: 0; z-index: 30; background: var(--bg); display: grid; place-items: center; padding: 16px; }
@@ -205,6 +205,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
 
   <div class="footer-tools">
     <button class="btn small" id="exportBtn" type="button" hidden>Scarica elenco (CSV)</button>
+    <span class="hint" id="whoami" hidden></span>
     <button class="linkbtn" id="logoutBtn" type="button" hidden>Esci da questo dispositivo</button>
   </div>
 </div>
@@ -307,6 +308,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
     st.className = 'status ' + (mode === 'live' ? 'live' : mode === 'local' ? 'local' : '');
     $('#statusText').textContent = mode === 'live' ? (navigator.onLine ? 'Condivisa · aggiornata in tempo reale' : 'Offline · si aggiorna appena torna la rete') : mode === 'local' ? 'Solo su questo dispositivo' : 'Collegamento…';
     $('#logoutBtn').hidden = mode !== 'live';
+    $('#whoami').hidden = mode !== 'live';
     $('#localBanner').hidden = mode !== 'local';
   }
 
@@ -669,6 +671,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
     firebase.auth().onAuthStateChanged(u => {
       $('#login').hidden = !!u;
       if (u) {
+        $('#whoami').textContent = 'Collegato come ' + (u.email || 'account senza email');
         state.contacts = []; state.sections = [];
         setMode('live');
         start(firebaseBackend(fs));
