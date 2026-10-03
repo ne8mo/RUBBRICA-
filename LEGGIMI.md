@@ -32,20 +32,9 @@ La configurazione si fa una volta sola, in circa 15 minuti.
 
 1. Menu a sinistra: **Build → Firestore Database → Crea database**.
 2. Posizione: **eur3 (Europa)** → **Avanti** → scegli **Modalità di produzione** → **Crea**.
-3. Apri la scheda **Regole**, cancella tutto e incolla il contenuto del file `firestore.rules`:
-
-   ```
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /{document=**} {
-         allow read, write: if request.auth != null;
-       }
-     }
-   }
-   ```
-
-   Poi **Pubblica**. Così i contatti li vede solo chi entra con un account del negozio.
+3. Apri la scheda **Regole**, cancella tutto e incolla il contenuto del file `firestore.rules`, poi **Pubblica**.
+   Attenzione: lo stesso progetto Firebase è usato anche dall'app *Schede colore*. Il file contiene
+   le regole di **tutte e due** le app: se le modifichi, non togliere la parte dell'altra app.
 4. In **Authentication → Impostazioni → Azioni utente** togli la spunta da **Abilita creazione (registrazione)**
    e salva: così nessun estraneo può crearsi un account nel tuo progetto. **Questo passaggio è obbligatorio.**
    Per dare accesso a una collega con un suo account: Authentication → Utenti → Aggiungi utente.
