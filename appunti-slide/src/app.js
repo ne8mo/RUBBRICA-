@@ -212,7 +212,7 @@
       const text = sb.text;
       const level = l.x - minX > l.size * 1.2 ? (l.x - minX > l.size * 3 ? 2 : 1) : 0;
       const continues = prev && !marker && Math.abs(l.size - prev.size) <= prev.size * 0.12 &&
-        (prev.y - l.y) <= prev.size * 1.9 && !/[.!?:;]$/.test(prev.item.text) &&
+        prev.y - l.y > 0 && (prev.y - l.y) <= prev.size * 1.9 && !/[.!?:;]$/.test(prev.item.text) &&
         (/^[a-zà-ÿ(,]/.test(text) || /[,(\-–/]$/.test(prev.item.text) || /\b(e|ed|o|di|da|in|con|per|tra|fra|il|lo|la|i|gli|le|un|una|the|and|or|of|to|in|for|with|a|an)$/i.test(prev.item.text)) &&
         l.x >= prev.x - prev.size * 0.5;
       if (continues) {
@@ -229,37 +229,307 @@
     return { title, items };
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Lettura del testo dalle immagini (OCR), tutto in locale             */
+  /* ------------------------------------------------------------------ */
+  const OCR = (() => {
+    // Codice eseguito nei worker, dopo il motore Tesseract incluso nella pagina.
+    const WORKER_SRC = `
+let M, api;
+onmessage = async (e) => {
+  const m = e.data;
+  try {
+    if (m.type === "init") {
+      M = await TesseractCore({});
+      for (const k in m.langs) M.FS.writeFile("./" + k + ".traineddata", new Uint8Array(m.langs[k]));
+      api = new M.TessBaseAPI();
+      const st = api.Init(null, Object.keys(m.langs).join("+"), 1);
+      api.SetVariable("tessedit_pageseg_mode", "3");
+      api.SetVariable("user_defined_dpi", "300");
+      postMessage({ type: "ready", st });
+    } else if (m.type === "ocr") {
+      M.FS.writeFile("/input", new Uint8Array(m.img));
+      api.SetImageFile(1, 0);
+      api.FindLines();
+      const a = api.GetGradient ? api.GetGradient() : api.GetAngle();
+      if (Math.abs(a) >= 0.005) api.SetImageFile(1, a);
+      api.Recognize(null);
+      postMessage({ type: "result", id: m.id, tsv: api.GetTSVText(0) });
+    }
+  } catch (err) {
+    postMessage({ type: "error", id: m.id, msg: String((err && err.message) || err) });
+  }
+};`;
+    let ready = null;
+    const slots = [];
+    const queue = [];
+    const waiting = new Map();
+    let seq = 0;
+
+    function b64ToBytes(b64) {
+      const bin = atob(b64);
+      const u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      return u;
+    }
+    async function gunzip(u8) {
+      const s = new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"));
+      return new Response(s).arrayBuffer();
+    }
+    function init() {
+      if (ready) return ready;
+      ready = (async () => {
+        const core = document.getElementById("tess-core");
+        if (!core) throw new Error("Motore OCR non incluso");
+        const url = URL.createObjectURL(new Blob([core.textContent + WORKER_SRC], { type: "text/javascript" }));
+        const langs = {};
+        for (const l of ["ita", "eng"]) langs[l] = await gunzip(b64ToBytes(document.getElementById("tess-" + l).textContent.trim()));
+        const n = Math.max(1, Math.min(2, (navigator.hardwareConcurrency || 2) - 1));
+        await Promise.all(Array.from({ length: n }, () => new Promise((res, rej) => {
+          const w = new Worker(url);
+          const copy = {};
+          for (const k in langs) copy[k] = langs[k].slice(0);
+          w.onmessage = (e) => {
+            const m = e.data;
+            if (m.type === "ready" && m.st === 0) {
+              const slot = { w, job: null };
+              slots.push(slot);
+              w.onmessage = (ev) => finish(slot, ev.data);
+              w.onerror = () => finish(slot, { type: "error", id: slot.job, msg: "OCR interrotto" });
+              res();
+            } else rej(new Error(m.msg || "Avvio OCR non riuscito"));
+          };
+          w.onerror = (e) => rej(new Error(e.message || "Avvio OCR non riuscito"));
+          w.postMessage({ type: "init", langs: copy }, Object.values(copy));
+        })));
+        pump();
+      })();
+      ready.catch(() => { ready = null; });
+      return ready;
+    }
+    function finish(slot, m) {
+      slot.job = null;
+      const p = waiting.get(m.id);
+      waiting.delete(m.id);
+      if (p) { if (m.type === "result") p.res(m.tsv); else p.rej(new Error(m.msg)); }
+      pump();
+    }
+    function pump() {
+      for (const slot of slots) {
+        if (slot.job != null || !queue.length) continue;
+        const job = queue.shift();
+        slot.job = job.id;
+        slot.w.postMessage({ type: "ocr", id: job.id, img: job.img }, [job.img]);
+      }
+    }
+    // png: ArrayBuffer di un'immagine PNG; h: altezza in pixel. Restituisce righe di testo.
+    async function recognize(png, h) {
+      await init();
+      const id = ++seq;
+      const tsv = await new Promise((res, rej) => {
+        waiting.set(id, { res, rej });
+        queue.push({ id, img: png });
+        pump();
+      });
+      return tsvToLines(tsv, h);
+    }
+    return { recognize };
+  })();
+
+  // Converte l'output di Tesseract in righe {text, x, y, size, rel}, scartando quelle poco affidabili.
+  function tsvToLines(tsv, imgH) {
+    const lines = [];
+    let cur = null;
+    for (const row of tsv.split("\n")) {
+      const c = row.split("\t");
+      if (c.length < 12) continue;
+      const level = +c[0];
+      const box = { left: +c[6], top: +c[7], w: +c[8], h: +c[9] };
+      if (level === 4) { cur = { ...box, words: [] }; lines.push(cur); }
+      else if (level === 5 && cur && c[11].trim()) cur.words.push({ ...box, conf: +c[10], text: c[11].trim() });
+    }
+    const out = [];
+    for (const l of lines) {
+      let words = l.words;
+      if (!words.length) continue;
+      const medH = median(words.filter((w) => /[\p{L}\p{N}]/u.test(w.text)).map((w) => w.h)) || l.h;
+      // Il pallino iniziale viene spesso letto come un simbolo strano: lo trattiamo come pallino
+      let bullet = false;
+      const f = words[0];
+      if (words.length > 1 && (!/[\p{L}\p{N}]/u.test(f.text) || (f.text.length === 1 && f.h < medH * 0.6))) {
+        bullet = true;
+        words = words.slice(1);
+      }
+      const conf = words.reduce((a, w) => a + w.conf, 0) / words.length;
+      if (conf < 60) continue;
+      if (!words.some((w) => /[\p{L}\p{N}]{2,}/u.test(w.text) && w.conf >= 60)) continue;
+      const text = clean(words.map((w) => w.text).join(" "));
+      if (!text) continue;
+      out.push({
+        text: (bullet ? "• " : "") + text,
+        x: words[0].left,
+        y: imgH - (l.top + l.h),
+        size: medH,
+        rel: 1 - (l.top + l.h / 2) / imgH,
+      });
+    }
+    return out;
+  }
+
+  const normWords = (s) => s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter((w) => w.length > 1);
+  // Righe lette dalle immagini che NON sono già presenti nel testo della slide
+  function uncoveredLines(ocrLines, knownText) {
+    const known = new Set(normWords(knownText));
+    return ocrLines.filter((l) => {
+      const ws = normWords(l.text);
+      if (!ws.length) return false;
+      return ws.filter((w) => known.has(w)).length / ws.length < 0.6;
+    });
+  }
+  function notesAsItems(lines) {
+    const n = linesToNotes(lines);
+    return (n.title ? [{ text: n.title, level: 0 }] : []).concat(n.items);
+  }
+
+  function canvasToPng(canvas) {
+    return new Promise((res, rej) => canvas.toBlob((b) => (b ? b.arrayBuffer().then(res, rej) : rej(new Error("png"))), "image/png"));
+  }
+  // Prepara un'immagine (qualsiasi formato leggibile dal browser) per l'OCR
+  async function imageForOcr(blob) {
+    const bmp = await createImageBitmap(blob);
+    let s = 1;
+    if (bmp.width < 1600) s = Math.min(3, 1600 / bmp.width);
+    if (bmp.width * s > 3200) s = 3200 / bmp.width;
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(bmp.width * s));
+    c.height = Math.max(1, Math.round(bmp.height * s));
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close && bmp.close();
+    return { png: await canvasToPng(c), w: c.width, h: c.height };
+  }
+  async function ocrBlob(blob) {
+    try {
+      const img = await imageForOcr(blob);
+      return await OCR.recognize(img.png, img.h);
+    } catch (e) {
+      console.warn("OCR non riuscito", e);
+      return null;
+    }
+  }
+  const MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", bmp: "image/bmp", webp: "image/webp", tif: "image/tiff", tiff: "image/tiff", svg: "image/svg+xml" };
+  const extOf = (name) => (name.split(".").pop() || "").toLowerCase();
+
+  // Testo "vero" o testo illeggibile (font senza mappatura dei caratteri)?
+  function realTextLength(lines) {
+    const all = lines.map((l) => l.text).join("");
+    const good = (all.match(/[\p{L}\p{N}]/gu) || []).length;
+    const bad = (all.match(/[�-]/g) || []).length;
+    return bad > good ? 0 : good;
+  }
+
   async function readPdf(file, bytes, onPage) {
     const doc = await pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)), isEvalSupported: false }).promise;
+    const OPS = pdfjsLib.OPS;
     const pages = [];
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
       const vp = page.getViewport({ scale: 1 });
       const lines = await pageLines(page);
-      pages.push({ lines, ratio: vp.width / vp.height });
+      const p = { lines, ratio: vp.width / vp.height, imgs: [], mode: null, ocr: null };
+      if (realTextLength(lines) < 20) {
+        p.mode = "full"; // nessun testo leggibile: è una scansione o un'immagine
+      } else {
+        // Immagini grandi nella pagina (potrebbero contenere testo)
+        try {
+          const ol = await page.getOperatorList();
+          for (let k = 0; k < ol.fnArray.length; k++) {
+            const fn = ol.fnArray[k], a = ol.argsArray[k];
+            let w = 0, h = 0;
+            if (fn === OPS.paintImageXObject || fn === OPS.paintImageXObjectRepeat) { w = a[1]; h = a[2]; }
+            else if (fn === OPS.paintInlineImageXObject && a[0]) { w = a[0].width; h = a[0].height; }
+            if (w * h >= 60000 && Math.min(w, h) >= 100) p.imgs.push(w + "x" + h);
+          }
+        } catch (e) { /* ignora */ }
+      }
+      pages.push(p);
       page.cleanup();
-      onPage(i, doc.numPages);
+      onPage(i, doc.numPages, "Lettura");
       if (i % 5 === 0) await new Promise((r) => setTimeout(r));
     }
+    // Immagini ripetute su molte pagine (loghi, sfondi del modello): non vanno lette
+    const sigCount = new Map();
+    pages.forEach((p) => new Set(p.imgs).forEach((s) => sigCount.set(s, (sigCount.get(s) || 0) + 1)));
+    pages.forEach((p) => {
+      if (!p.mode && p.imgs.some((s) => pages.length < 4 || sigCount.get(s) < Math.max(3, pages.length * 0.4))) p.mode = "mixed";
+    });
+    // OCR delle pagine che servono
+    const todo = pages.map((p, idx) => ({ p, idx })).filter((x) => x.p.mode);
+    let done = 0, inflight = 0;
+    const jobs = [];
+    const freed = [];
+    for (const { p, idx } of todo) {
+      const page = await doc.getPage(idx + 1);
+      const vp1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: Math.min(4, 2400 / vp1.width) });
+      const c = document.createElement("canvas");
+      c.width = Math.ceil(vp.width);
+      c.height = Math.ceil(vp.height);
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      page.cleanup();
+      const png = await canvasToPng(c);
+      while (inflight >= 3) await new Promise((r) => freed.push(r)); // non accumulare troppe immagini in memoria
+      inflight++;
+      jobs.push(OCR.recognize(png, c.height)
+        .then((lines) => { p.ocr = lines; })
+        .catch((e) => { console.warn(e); p.ocrFailed = true; })
+        .finally(() => {
+          inflight--;
+          (freed.shift() || (() => {}))();
+          onPage(++done, todo.length, "Lettura del testo dalle immagini");
+        }));
+    }
+    await Promise.all(jobs);
     doc.destroy();
+    pages.forEach((p) => {
+      if (p.mode === "full" && p.ocr) p.lines = p.ocr;
+    });
     // Intestazioni e piè di pagina ripetuti (es. nome del corso, logo testuale): via
     const repeated = new Set();
+    const keyOf = (l) => l.text.replace(/\d+/g, "#").toLowerCase();
+    // Solo il testo piccolo ai bordi può essere intestazione/piè di pagina (mai i titoli)
+    pages.forEach((p) => {
+      const med = median(p.lines.map((l) => l.size));
+      p.lines.forEach((l) => { l.edge = (l.rel > 0.9 || l.rel < 0.1) && l.size <= med * 1.05; });
+    });
     if (pages.length >= 4) {
       const counts = new Map();
       for (const p of pages) {
-        const keys = new Set(p.lines.filter((l) => l.rel > 0.9 || l.rel < 0.1).map((l) => l.text.replace(/\d+/g, "#").toLowerCase()));
+        const keys = new Set(p.lines.filter((l) => l.edge).map(keyOf));
         keys.forEach((k) => counts.set(k, (counts.get(k) || 0) + 1));
       }
       counts.forEach((c, k) => { if (c >= Math.max(3, pages.length * 0.4)) repeated.add(k); });
     }
+    const keep = (l) => {
+      if (isPageNumber(stripBullet(l.text).text) && (l.rel > 0.85 || l.rel < 0.15)) return false;
+      if (l.edge && repeated.has(keyOf(l))) return false;
+      return true;
+    };
     return pages.map((p, idx) => {
-      const lines = p.lines.filter((l) => {
-        if (isPageNumber(l.text) && (l.rel > 0.85 || l.rel < 0.15)) return false;
-        if ((l.rel > 0.9 || l.rel < 0.1) && repeated.has(l.text.replace(/\d+/g, "#").toLowerCase())) return false;
-        return true;
-      });
-      const n = linesToNotes(lines);
-      return { index: idx + 1, title: n.title, items: n.items, speaker: [], ratio: p.ratio };
+      const n = linesToNotes(p.lines.filter(keep));
+      let imgItems = [];
+      if (p.mode === "mixed" && p.ocr) {
+        imgItems = notesAsItems(uncoveredLines(p.ocr.filter(keep), p.lines.map((l) => l.text).join(" ")));
+      }
+      return {
+        index: idx + 1, title: n.title, items: n.items, imgItems, speaker: [], ratio: p.ratio,
+        ocr: p.mode === "full" && !!p.ocr, ocrFailed: !!p.ocrFailed,
+      };
     });
   }
 
@@ -269,6 +539,7 @@
   const xmlParser = new DOMParser();
   const byLocal = (node, name) => Array.from(node.getElementsByTagNameNS("*", name));
   const childLocal = (node, name) => Array.from(node.children).filter((c) => c.localName === name);
+  const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
   function resolvePath(base, target) {
     if (target.startsWith("/")) return target.slice(1);
@@ -291,6 +562,7 @@
     const doc = await readXml(zip, relPath);
     const map = {};
     if (doc) byLocal(doc, "Relationship").forEach((r) => {
+      if (r.getAttribute("TargetMode") === "External") return;
       map[r.getAttribute("Id")] = { target: resolvePath(path, r.getAttribute("Target")), type: r.getAttribute("Type") || "" };
     });
     return map;
@@ -312,45 +584,76 @@
     const ph = byLocal(sp, "ph")[0];
     const type = ph ? ph.getAttribute("type") || "body" : null;
     const off = byLocal(sp, "off")[0];
+    const ext = byLocal(sp, "ext").find((e) => e.hasAttribute("cx"));
     return {
       type,
       x: off ? +off.getAttribute("x") : null,
       y: off ? +off.getAttribute("y") : null,
+      area: ext ? (+ext.getAttribute("cx")) * (+ext.getAttribute("cy")) : 0,
     };
   }
-  function slideFromXml(doc) {
+  function slideFromXml(doc, slideRels) {
     const spTree = byLocal(doc, "spTree")[0];
-    if (!spTree) return { title: "", items: [] };
+    const pics = [];
+    const diagrams = [];
+    if (!spTree) return { title: "", items: [], pics, diagrams };
     const blocks = [];
-    // Forme con testo e tabelle, nell'ordine del documento (anche dentro i gruppi)
+    const relTarget = (el, attr) => {
+      const id = el.getAttributeNS(REL_NS, attr) || el.getAttribute("r:" + attr);
+      return id && slideRels[id] ? slideRels[id].target : null;
+    };
+    // Forme con testo, tabelle, immagini e SmartArt, anche dentro i gruppi
     const walk = (node) => {
       for (const c of node.children) {
         if (c.localName === "sp") {
           const info = shapeInfo(c);
           if (["sldNum", "dt", "ftr", "hdr"].includes(info.type)) continue;
           const txBody = childLocal(c, "txBody")[0];
-          if (!txBody) continue;
-          const paras = childLocal(txBody, "p").map((p) => {
-            const pPr = childLocal(p, "pPr")[0];
-            const lvl = pPr ? +(pPr.getAttribute("lvl") || 0) : 0;
-            return { text: paraText(p), level: Math.min(lvl, 2) };
-          }).filter((p) => p.text);
-          if (paras.length) blocks.push({ ...info, paras });
-        } else if (c.localName === "graphicFrame") {
-          const tbl = byLocal(c, "tbl")[0];
-          if (!tbl) continue;
+          if (txBody) {
+            const paras = childLocal(txBody, "p").map((p) => {
+              const pPr = childLocal(p, "pPr")[0];
+              const lvl = pPr ? +(pPr.getAttribute("lvl") || 0) : 0;
+              return { text: paraText(p), level: Math.min(lvl, 2) };
+            }).filter((p) => p.text);
+            if (paras.length) blocks.push({ ...info, paras });
+          }
+          // Forma riempita con un'immagine
+          const blip = byLocal(c, "blip")[0];
+          const t = blip && relTarget(blip, "embed");
+          if (t) pics.push({ path: t, area: info.area });
+        } else if (c.localName === "pic") {
           const info = shapeInfo(c);
-          const paras = byLocal(tbl, "tr").map((tr) => ({
-            text: childLocal(tr, "tc").map((tc) => byLocal(tc, "p").map(paraText).filter(Boolean).join(" ")).join("  |  "),
-            level: 0, table: true,
-          })).filter((p) => p.text.replace(/[|\s]/g, ""));
-          if (paras.length) blocks.push({ ...info, paras });
+          const blip = byLocal(c, "blip")[0];
+          const t = blip && relTarget(blip, "embed");
+          if (t) pics.push({ path: t, area: info.area });
+        } else if (c.localName === "graphicFrame") {
+          const info = shapeInfo(c);
+          const tbl = byLocal(c, "tbl")[0];
+          if (tbl) {
+            const paras = byLocal(tbl, "tr").map((tr) => ({
+              text: childLocal(tr, "tc").map((tc) => byLocal(tc, "p").map(paraText).filter(Boolean).join(" ")).join("  |  "),
+              level: 0, table: true,
+            })).filter((p) => p.text.replace(/[|\s]/g, ""));
+            if (paras.length) blocks.push({ ...info, paras });
+          }
+          const dgm = byLocal(c, "relIds")[0];
+          const dm = dgm && relTarget(dgm, "dm");
+          if (dm) diagrams.push(dm);
         } else if (c.localName === "grpSp") {
           walk(c);
+        } else if (c.localName === "AlternateContent") {
+          const choice = childLocal(c, "Choice")[0] || childLocal(c, "Fallback")[0];
+          if (choice) walk(choice);
         }
       }
     };
     walk(spTree);
+    // Immagine di sfondo della slide (es. slide scansionate)
+    const bg = byLocal(doc, "bg")[0];
+    const bgBlip = bg && byLocal(bg, "blip")[0];
+    const bgT = bgBlip && relTarget(bgBlip, "embed");
+    if (bgT) pics.push({ path: bgT, area: Infinity, background: true });
+
     const isTitle = (b) => b.type === "title" || b.type === "ctrTitle";
     const titles = blocks.filter(isTitle);
     let others = blocks.filter((b) => !isTitle(b));
@@ -364,7 +667,26 @@
       const sb = p.table ? { text: p.text } : stripBullet(p.text);
       items.push({ text: sb.text, level: p.level, table: !!p.table });
     }
-    return { title, items };
+    return { title, items, pics, diagrams };
+  }
+
+  // Legge il testo delle immagini di una slide e tiene solo quello nuovo
+  async function ocrPictures(zip, pics, minArea, known) {
+    const lines = [];
+    const seen = new Set();
+    for (const pic of pics) {
+      if (seen.has(pic.path) || pic.area < minArea) continue;
+      seen.add(pic.path);
+      const f = zip.file(pic.path);
+      const mime = MIME[extOf(pic.path)];
+      if (!f || !mime || mime === "image/svg+xml" || mime === "image/tiff") continue;
+      const blob = new Blob([await f.async("uint8array")], { type: mime });
+      const ls = await ocrBlob(blob);
+      if (ls) lines.push(...ls);
+      // le immagini piccole raramente contengono testo utile
+    }
+    const fresh = uncoveredLines(lines, known);
+    return fresh.length ? notesAsItems(fresh) : [];
   }
 
   async function readPptx(file, bytes, onPage) {
@@ -372,9 +694,12 @@
     const pres = await readXml(zip, "ppt/presentation.xml");
     const presRels = await rels(zip, "ppt/presentation.xml");
     let slidePaths = [];
+    let slideArea = 12192000 * 6858000;
     if (pres) {
+      const sz = byLocal(pres, "sldSz")[0];
+      if (sz) slideArea = (+sz.getAttribute("cx")) * (+sz.getAttribute("cy")) || slideArea;
       slidePaths = byLocal(pres, "sldId").map((s) => {
-        const rid = s.getAttribute("r:id") || s.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+        const rid = s.getAttributeNS(REL_NS, "id") || s.getAttribute("r:id");
         return presRels[rid] && presRels[rid].target;
       }).filter(Boolean);
     }
@@ -386,10 +711,15 @@
     for (let i = 0; i < slidePaths.length; i++) {
       const path = slidePaths[i];
       const doc = await readXml(zip, path);
-      const n = doc ? slideFromXml(doc) : { title: "", items: [] };
+      const r = await rels(zip, path);
+      const n = doc ? slideFromXml(doc, r) : { title: "", items: [], pics: [], diagrams: [] };
+      // Testo degli SmartArt
+      for (const dpath of n.diagrams) {
+        const dd = await readXml(zip, dpath);
+        if (dd) byLocal(dd, "p").forEach((p) => { const t = paraText(p); if (t) n.items.push({ text: t, level: 0 }); });
+      }
       // Note del relatore
       const speaker = [];
-      const r = await rels(zip, path);
       const notesRel = Object.values(r).find((x) => /notesSlide$/.test(x.type));
       if (notesRel) {
         const nd = await readXml(zip, notesRel.target);
@@ -401,12 +731,372 @@
           });
         }
       }
-      out.push({ index: i + 1, title: n.title, items: n.items, speaker, ratio: 16 / 9 });
-      onPage(i + 1, slidePaths.length);
+      // Testo dentro le immagini: tutte se la slide non ha testo, altrimenti solo quelle grandi
+      const known = [n.title, ...n.items.map((x) => x.text)].join(" ");
+      const hasText = !!known.trim();
+      let imgItems = [];
+      let ocr = false;
+      if (n.pics.length) {
+        onPage(i + 1, slidePaths.length, "Lettura del testo dalle immagini");
+        imgItems = await ocrPictures(zip, n.pics, hasText ? slideArea * 0.08 : 0, known);
+        if (!hasText && imgItems.length) {
+          n.title = imgItems[0].text;
+          n.items = imgItems.slice(1);
+          imgItems = [];
+          ocr = true;
+        }
+      }
+      out.push({ index: i + 1, title: n.title, items: n.items, imgItems, speaker, ratio: 16 / 9, ocr });
+      onPage(i + 1, slidePaths.length, "Lettura");
     }
     return out;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Lettura LibreOffice / OpenOffice (.odp)                             */
+  /* ------------------------------------------------------------------ */
+  const DRAW_NS = "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0";
+  const PRES_NS = "urn:oasis:names:tc:opendocument:xmlns:presentation:1.0";
+  const SVG_NS = "urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0";
+  const XLINK_NS = "http://www.w3.org/1999/xlink";
+  const TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
+  function toCm(v) {
+    const m = /^(-?[\d.]+)(cm|mm|in|pt|pc|px)?$/.exec(v || "");
+    if (!m) return null;
+    const f = { cm: 1, mm: 0.1, in: 2.54, pt: 2.54 / 72, pc: 2.54 / 6, px: 2.54 / 96 }[m[2] || "cm"];
+    return +m[1] * f;
+  }
+  function odfText(node) {
+    let s = "";
+    const walk = (n) => {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) s += c.data;
+        else if (c.nodeType === 1) {
+          if (c.localName === "s") s += " ".repeat(+(c.getAttributeNS(TEXT_NS, "c") || 1));
+          else if (c.localName === "tab" || c.localName === "line-break") s += " ";
+          else if (c.localName === "note" || c.localName === "annotation") continue;
+          else walk(c);
+        }
+      }
+    };
+    walk(node);
+    return clean(s);
+  }
+  function odfParas(node) {
+    const out = [];
+    const walk = (n, level) => {
+      for (const c of n.children) {
+        if (c.namespaceURI === TEXT_NS && (c.localName === "p" || c.localName === "h")) {
+          const t = odfText(c);
+          if (t) out.push({ text: t, level: Math.min(Math.max(level, 0), 2) });
+        } else if (c.namespaceURI === TEXT_NS && c.localName === "list") walk(c, level + 1);
+        else if (c.localName === "table-row") {
+          const t = Array.from(c.children).filter((x) => x.localName === "table-cell").map(odfText).join("  |  ");
+          if (t.replace(/[|\s]/g, "")) out.push({ text: t, level: 0, table: true });
+        } else walk(c, level);
+      }
+    };
+    walk(node, -1);
+    return out;
+  }
+  async function readOdp(file, bytes, onPage) {
+    const zip = await JSZip.loadAsync(bytes);
+    const content = await readXml(zip, "content.xml");
+    if (!content) throw new Error("File .odp non valido");
+    const pages = Array.from(content.getElementsByTagNameNS(DRAW_NS, "page"));
+    const out = [];
+    for (let i = 0; i < pages.length; i++) {
+      const pg = pages[i];
+      const blocks = [];
+      const pics = [];
+      const walk = (node) => {
+        for (const c of node.children) {
+          if (c.namespaceURI === PRES_NS && c.localName === "notes") continue;
+          if (c.namespaceURI === DRAW_NS && c.localName === "g") { walk(c); continue; }
+          if (c.namespaceURI !== DRAW_NS) continue;
+          const cls = c.getAttributeNS(PRES_NS, "class") || "";
+          if (["page-number", "date-time", "footer", "header"].includes(cls)) continue;
+          const y = toCm(c.getAttributeNS(SVG_NS, "y")), x = toCm(c.getAttributeNS(SVG_NS, "x"));
+          const w = toCm(c.getAttributeNS(SVG_NS, "width")) || 0, h = toCm(c.getAttributeNS(SVG_NS, "height")) || 0;
+          Array.from(c.getElementsByTagNameNS(DRAW_NS, "image")).forEach((im) => {
+            const href = im.getAttributeNS(XLINK_NS, "href");
+            if (href && !/^https?:/.test(href)) pics.push({ path: href.replace(/^\.\//, ""), area: w * h });
+          });
+          const paras = odfParas(c).filter((p) => !(p.text.length < 4 && isPageNumber(p.text)));
+          if (paras.length) blocks.push({ cls, x, y, paras });
+        }
+      };
+      walk(pg);
+      const titles = blocks.filter((b) => b.cls === "title");
+      let others = blocks.filter((b) => b.cls !== "title");
+      if (others.every((b) => b.y != null)) others = others.slice().sort((a, b) => (Math.abs(a.y - b.y) > 0.5 ? a.y - b.y : a.x - b.x));
+      let title = titles.map((b) => b.paras.map((p) => p.text).join(" ")).join(" — ");
+      let items = [];
+      for (const b of others) for (const p of b.paras) {
+        const sb = p.table ? { text: p.text } : stripBullet(p.text);
+        items.push({ text: sb.text, level: p.level, table: !!p.table });
+      }
+      const speaker = [];
+      Array.from(pg.children).filter((c) => c.namespaceURI === PRES_NS && c.localName === "notes").forEach((nt) => {
+        Array.from(nt.getElementsByTagNameNS(DRAW_NS, "frame")).forEach((fr) => {
+          if ((fr.getAttributeNS(PRES_NS, "class") || "") !== "notes") return;
+          odfParas(fr).forEach((p) => speaker.push(p.text));
+        });
+      });
+      const known = [title, ...items.map((x) => x.text)].join(" ");
+      let imgItems = [];
+      let ocr = false;
+      if (pics.length) {
+        onPage(i + 1, pages.length, "Lettura del testo dalle immagini");
+        const maxArea = Math.max(...pics.map((p) => p.area));
+        imgItems = await ocrPictures(zip, pics, known.trim() ? Math.max(40, maxArea * 0.3) : 0, known);
+        if (!known.trim() && imgItems.length) {
+          title = imgItems[0].text;
+          items = imgItems.slice(1);
+          imgItems = [];
+          ocr = true;
+        }
+      }
+      out.push({ index: i + 1, title, items, imgItems, speaker, ratio: 16 / 9, ocr });
+      onPage(i + 1, pages.length, "Lettura");
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Lettura PowerPoint vecchio formato (.ppt / .pps)                    */
+  /* ------------------------------------------------------------------ */
+  // Contenitore "Compound File" di Microsoft
+  function readCfb(buf) {
+    const dv = new DataView(buf);
+    const u8 = new Uint8Array(buf);
+    if (buf.byteLength < 512 || dv.getUint32(0, true) !== 0xE011CFD0 || dv.getUint32(4, true) !== 0xE11AB1A1) throw new Error("File .ppt non valido");
+    const ss = 1 << dv.getUint16(30, true), mss = 1 << dv.getUint16(32, true);
+    const dirStart = dv.getUint32(48, true), cutoff = dv.getUint32(56, true);
+    const miniFatStart = dv.getUint32(60, true), difatStart = dv.getUint32(68, true), nDifat = dv.getUint32(72, true);
+    const END = 0xFFFFFFFA;
+    const off = (s) => (s + 1) * ss;
+    const difat = [];
+    for (let i = 0; i < 109; i++) { const v = dv.getUint32(76 + i * 4, true); if (v < END) difat.push(v); }
+    let d = difatStart;
+    for (let k = 0; k < nDifat && d < END && off(d) + ss <= buf.byteLength; k++) {
+      for (let i = 0; i < ss / 4 - 1; i++) { const v = dv.getUint32(off(d) + i * 4, true); if (v < END) difat.push(v); }
+      d = dv.getUint32(off(d) + ss - 4, true);
+    }
+    const fat = [];
+    for (const s of difat) {
+      if (off(s) + ss > buf.byteLength) continue;
+      for (let i = 0; i < ss / 4; i++) fat.push(dv.getUint32(off(s) + i * 4, true));
+    }
+    const chain = (start, table) => {
+      const outc = [];
+      const seen = new Set();
+      let s = start;
+      while (s < END && s < table.length && !seen.has(s)) { seen.add(s); outc.push(s); s = table[s]; }
+      return outc;
+    };
+    const readChain = (start) => {
+      const secs = chain(start, fat);
+      const o = new Uint8Array(secs.length * ss);
+      secs.forEach((s, i) => o.set(u8.subarray(off(s), Math.min(off(s) + ss, u8.length)), i * ss));
+      return o;
+    };
+    const dir = readChain(dirStart);
+    const ddv = new DataView(dir.buffer);
+    const entries = [];
+    for (let p = 0; p + 128 <= dir.length; p += 128) {
+      const nl = ddv.getUint16(p + 64, true);
+      let name = "";
+      for (let i = 0; i < nl / 2 - 1; i++) name += String.fromCharCode(ddv.getUint16(p + i * 2, true));
+      entries.push({ name, type: dir[p + 66], start: ddv.getUint32(p + 116, true), size: ddv.getUint32(p + 120, true) });
+    }
+    let mini = null, miniFat = null;
+    return {
+      get(name) {
+        const e = entries.find((x) => x.name === name && x.type === 2);
+        if (!e) return null;
+        if (e.size < cutoff) {
+          if (!mini) {
+            mini = readChain(entries[0].start);
+            const mf = readChain(miniFatStart);
+            const mdv = new DataView(mf.buffer);
+            miniFat = [];
+            for (let i = 0; i < mf.length / 4; i++) miniFat.push(mdv.getUint32(i * 4, true));
+          }
+          const secs = chain(e.start, miniFat);
+          const o = new Uint8Array(secs.length * mss);
+          secs.forEach((s, i) => o.set(mini.subarray(s * mss, (s + 1) * mss), i * mss));
+          return o.subarray(0, e.size);
+        }
+        return readChain(e.start).subarray(0, e.size);
+      },
+    };
+  }
+
+  async function readPpt(file, bytes, onPage) {
+    const cfb = readCfb(bytes);
+    const docS = cfb.get("PowerPoint Document");
+    if (!docS) throw new Error("File .ppt non valido");
+    const dv = new DataView(docS.buffer, docS.byteOffset, docS.byteLength);
+    const len = docS.byteLength;
+    const rec = (p) => (p + 8 <= len ? { ver: dv.getUint16(p, true) & 0xF, type: dv.getUint16(p + 2, true), inst: dv.getUint16(p, true) >> 4, len: dv.getUint32(p + 4, true), p } : null);
+    const children = function* (start, end) {
+      let p = start;
+      end = Math.min(end, len);
+      while (p + 8 <= end) { const r = rec(p); yield r; p += 8 + r.len; }
+    };
+    const dec16 = new TextDecoder("utf-16le");
+    const textOf = (r) => {
+      const a = docS.subarray(r.p + 8, Math.min(r.p + 8 + r.len, len));
+      if (r.type === 0x0FA0) return dec16.decode(a);
+      let s = "";
+      for (const b of a) s += String.fromCharCode(b);
+      return s;
+    };
+    // Raccoglie i testi (con il loro tipo: titolo, corpo, note…) dentro un record
+    const collect = (r, out, state = { t: 4 }) => {
+      if (r.ver === 0xF) {
+        for (const c of children(r.p + 8, r.p + 8 + r.len)) collect(c, out, state);
+      } else if (r.type === 0x0F9F) state.t = dv.getUint32(r.p + 8, true);
+      else if (r.type === 0x0FA0 || r.type === 0x0FA8) out.push({ type: state.t, text: textOf(r) });
+      return out;
+    };
+    // Mappa persistente: id -> posizione dei record
+    const persist = new Map();
+    let docRef = null;
+    const cu = cfb.get("Current User");
+    let edit = cu && cu.length >= 20 ? new DataView(cu.buffer, cu.byteOffset).getUint32(16, true) : null;
+    if (edit == null) {
+      for (let p = len - 8; p >= 0; p--) { if (dv.getUint16(p + 2, true) === 0x0FF5 && dv.getUint16(p, true) === 0) { edit = p; break; } }
+    }
+    for (let guard = 0; edit != null && guard < 1000; guard++) {
+      const r = rec(edit);
+      if (!r || r.type !== 0x0FF5) break;
+      const lastEdit = dv.getUint32(edit + 16, true), pdOff = dv.getUint32(edit + 20, true);
+      if (docRef == null) docRef = dv.getUint32(edit + 24, true);
+      const pr = rec(pdOff);
+      if (pr) {
+        let p = pdOff + 8;
+        const end = Math.min(p + pr.len, len);
+        while (p + 4 <= end) {
+          const v = dv.getUint32(p, true);
+          p += 4;
+          const id = v & 0xFFFFF, n = v >>> 20;
+          for (let k = 0; k < n && p + 4 <= end; k++, p += 4) if (!persist.has(id + k)) persist.set(id + k, dv.getUint32(p, true));
+        }
+      }
+      edit = lastEdit || null;
+    }
+    const docRec = rec(persist.get(docRef));
+    if (!docRec || docRec.type !== 0x03E8) throw new Error("File .ppt non leggibile");
+    // Elenco delle immagini (BStore) e flusso "Pictures" che le contiene
+    const blips = [];
+    const pictures = cfb.get("Pictures");
+    const findBStore = (r) => {
+      if (r.type === 0xF001) {
+        for (const c of children(r.p + 8, r.p + 8 + r.len)) {
+          blips.push(c.type === 0xF007 && c.len >= 36 ? { off: dv.getUint32(c.p + 8 + 28, true) } : null);
+        }
+      } else if (r.ver === 0xF) for (const c of children(r.p + 8, r.p + 8 + r.len)) findBStore(c);
+    };
+    // Immagini usate in un record (proprietà "pib" delle forme)
+    const pibsOf = (r, out) => {
+      if (r.ver === 0xF) { for (const c of children(r.p + 8, r.p + 8 + r.len)) pibsOf(c, out); }
+      else if (r.type === 0xF00B || r.type === 0xF121 || r.type === 0xF122) {
+        for (let k = 0; k < r.inst && r.p + 8 + k * 6 + 6 <= len; k++) {
+          const opid = dv.getUint16(r.p + 8 + k * 6, true);
+          if ((opid & 0x3FFF) === 0x0104 && !(opid & 0x8000)) out.add(dv.getUint32(r.p + 8 + k * 6 + 2, true));
+        }
+      }
+      return out;
+    };
+    const blipBlob = (pib) => {
+      const b = blips[pib - 1];
+      if (!b || !pictures || b.off + 8 > pictures.length) return null;
+      const size = new DataView(pictures.buffer, pictures.byteOffset + b.off, 8).getUint32(4, true);
+      const data = pictures.subarray(b.off, Math.min(b.off + 8 + size, pictures.length));
+      // cerca l'inizio di un PNG o JPEG nei primi byte
+      for (let i = 8; i < Math.min(80, data.length - 4); i++) {
+        if (data[i] === 0x89 && data[i + 1] === 0x50 && data[i + 2] === 0x4E && data[i + 3] === 0x47) return new Blob([data.subarray(i)], { type: "image/png" });
+        if (data[i] === 0xFF && data[i + 1] === 0xD8 && data[i + 2] === 0xFF) return new Blob([data.subarray(i)], { type: "image/jpeg" });
+      }
+      return null;
+    };
+    const lists = { 0: [], 2: [] };
+    for (const c of children(docRec.p + 8, docRec.p + 8 + docRec.len)) {
+      if (c.type === 0x040B) findBStore(c);
+      if (c.type !== 0x0FF0 || !(c.inst in lists)) continue;
+      let cur = null, state = { t: 4 };
+      for (const a of children(c.p + 8, c.p + 8 + c.len)) {
+        if (a.type === 0x03F3) {
+          cur = { persistId: dv.getUint32(a.p + 8, true), id: dv.getUint32(a.p + 20, true), texts: [] };
+          lists[c.inst].push(cur);
+          state = { t: 4 };
+        } else if (cur) collect(a, cur.texts, state);
+      }
+    }
+    // Note del relatore, collegate alle slide tramite id
+    const notesById = new Map();
+    for (const nt of lists[2]) {
+      const r = rec(persist.get(nt.persistId));
+      const texts = nt.texts.concat(r ? collect(r, []) : []).filter((t) => t.type === 2);
+      notesById.set(nt.id, texts.map((t) => t.text));
+    }
+    const out = [];
+    const split = (s) => s.split(/\r/).map((x) => clean(x.replace(/\v/g, " "))).filter((x) => x && x !== "*" && !isPageNumber(x));
+    for (let i = 0; i < lists[0].length; i++) {
+      const sl = lists[0][i];
+      const r = rec(persist.get(sl.persistId));
+      let notesRef = null;
+      const fromDrawing = [];
+      const pibs = r && r.ver === 0xF ? pibsOf(r, new Set()) : new Set();
+      if (r && r.ver === 0xF) {
+        for (const c of children(r.p + 8, r.p + 8 + r.len)) {
+          if (c.type === 0x03EF && c.len >= 20) notesRef = dv.getUint32(c.p + 8 + 16, true);
+          else collect(c, fromDrawing);
+        }
+      }
+      const all = sl.texts.slice();
+      const seen = new Set(all.map((t) => clean(t.text)));
+      fromDrawing.forEach((t) => { if (!seen.has(clean(t.text))) { seen.add(clean(t.text)); all.push(t); } });
+      const isT = (t) => t.type === 0 || t.type === 6;
+      const title = all.filter(isT).map((t) => split(t.text).join(" ")).join(" — ");
+      const items = [];
+      all.filter((t) => !isT(t) && t.type !== 2).forEach((t) => split(t.text).forEach((x) => items.push({ text: stripBullet(x).text, level: 0 })));
+      const speaker = (notesById.get(notesRef) || []).flatMap(split);
+      // Testo nelle immagini della slide
+      let imgItems = [], ocr = false;
+      let t2 = title, it2 = items;
+      if (pibs.size) {
+        onPage(i + 1, lists[0].length, "Lettura del testo dalle immagini");
+        const lines = [];
+        for (const pib of pibs) {
+          const blob = blipBlob(pib);
+          if (!blob) continue;
+          const ls = await ocrBlob(blob);
+          if (ls) lines.push(...ls);
+        }
+        const known = [title, ...items.map((x) => x.text)].join(" ");
+        imgItems = notesAsItems(uncoveredLines(lines, known));
+        if (!known.trim() && imgItems.length) { t2 = imgItems[0].text; it2 = imgItems.slice(1); imgItems = []; ocr = true; }
+      }
+      out.push({ index: i + 1, title: t2, items: it2, imgItems, speaker, ratio: 4 / 3, ocr });
+      onPage(i + 1, lists[0].length, "Lettura");
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Foto e scansioni (JPG, PNG…)                                        */
+  /* ------------------------------------------------------------------ */
+  async function readImage(file, bytes) {
+    const blob = new Blob([bytes], { type: file.type || MIME[extOf(file.name)] || "" });
+    const img = await imageForOcr(blob); // fallisce se il browser non sa aprire l'immagine
+    const ratio = img.w / img.h;
+    const lines = await OCR.recognize(img.png, img.h);
+    const n = linesToNotes(lines.filter((l) => !(isPageNumber(stripBullet(l.text).text) && (l.rel > 0.85 || l.rel < 0.15))));
+    return { title: n.title, items: n.items, imgItems: [], speaker: [], ratio, ocr: true };
+  }
   /* ------------------------------------------------------------------ */
   /* Riconoscimento lingua (semplice, locale)                           */
   /* ------------------------------------------------------------------ */
@@ -421,7 +1111,7 @@
     return it > en ? "it" : "en";
   }
   function slideText(s) {
-    return [s.title, ...s.items.map((i) => i.text), ...s.speaker].join("\n");
+    return [s.title, ...s.items.map((i) => i.text), ...(s.imgItems || []).map((i) => i.text), ...s.speaker].join("\n");
   }
 
   /* ------------------------------------------------------------------ */
@@ -582,7 +1272,7 @@
     chips.textContent = "";
     state.files.slice().sort((a, b) => a.order - b.order).forEach((f) => {
       const c = el("span", "chip");
-      c.append(el("span", "kind", f.kind.toUpperCase()), el("span", null, f.name + " · " + state.slides.filter((s) => s.fileId === f.id).length));
+      c.append(el("span", "kind", f.kind === "img" ? "FOTO" : f.kind.toUpperCase()), el("span", null, f.name + " · " + state.slides.filter((s) => s.fileId === f.id).length));
       const x = el("button", null, "✕");
       x.title = "Togli questo file";
       x.setAttribute("aria-label", "Togli " + f.name);
@@ -612,8 +1302,8 @@
     const thumb = el("div", "thumb");
     thumb.title = "Apri la slide";
     const f = state.files.find((x) => x.id === s.fileId);
-    if (s.kind === "pdf") {
-      if (s.ratio) thumb.style.aspectRatio = String(s.ratio);
+    if (s.kind === "pdf" || s.kind === "img") {
+      if (s.ratio) thumb.style.aspectRatio = String(Math.max(0.6, Math.min(2.4, s.ratio)));
       thumb.append(el("div", "ph", "Anteprima…"));
     } else {
       const ts = el("div", "textslide");
@@ -626,7 +1316,7 @@
     const notes = el("div", "notes");
     const head = el("div", "notes-head");
     const badge = el("span", "badge", "Slide " + (s.n || s.index));
-    const src = el("span", "src", (f ? f.name : "") + (s.kind === "pdf" ? " · pag. " : " · diapositiva ") + s.index);
+    const src = el("span", "src", s.kind === "img" ? (s.name || "") : (f ? f.name : "") + (s.kind === "pdf" ? " · pag. " : " · diapositiva ") + s.index);
     const trTag = el("span", "tr-tag", "tradotto");
     trTag.hidden = true;
     const copy = el("button", "mini", "Copia");
@@ -634,7 +1324,13 @@
     copy.onclick = () => {
       navigator.clipboard.writeText(rowPlainText(s)).then(() => toast("Appunti copiati"), () => toast("Copia non riuscita"));
     };
-    head.append(badge, src, trTag, copy);
+    head.append(badge, src);
+    if (s.ocr) {
+      const o = el("span", "ocr-tag", "letto dall'immagine");
+      o.title = "Testo riconosciuto automaticamente da un'immagine: controllalo con la slide";
+      head.append(o);
+    }
+    head.append(trTag, copy);
     const content = el("div", "content");
     const ta = el("textarea", "mynote");
     ta.placeholder = "Le tue annotazioni su questa slide…";
@@ -670,10 +1366,19 @@
       });
       c.append(ul);
     }
-    if (!d.title && !d.items.length) {
-      c.append(el("p", "empty-note", s.kind === "pdf"
-        ? "Questa slide non contiene testo selezionabile (solo immagini o testo come immagine)."
-        : "Questa slide non contiene testo (solo immagini o grafici)."));
+    const img = d.imgItems || [];
+    if (img.length) {
+      const box = el("div", "imgtext");
+      box.append(el("b", null, "Testo nelle immagini della slide"));
+      const ul = el("ul");
+      img.forEach((it, i) => ul.append(el("li", (s.imgItems[i].level ? "l" + s.imgItems[i].level : ""), it.text)));
+      box.append(ul);
+      c.append(box);
+    }
+    if (!d.title && !d.items.length && !img.length) {
+      c.append(el("p", "empty-note", s.ocrFailed
+        ? "Non è stato possibile leggere il testo di questa slide: aggiorna il browser (Chrome, Edge, Firefox o Safari recenti) e ricaricala."
+        : "In questa slide non c'è testo da leggere (solo immagini o grafici senza scritte)."));
     }
     if (d.speaker.length) {
       const sp = el("div", "speaker");
@@ -689,6 +1394,10 @@
     const tr = r && r.trData && r.shownLang === state.lang ? r.trData : s;
     const out = ["Slide " + s.n + (tr.title ? " — " + tr.title : "")];
     tr.items.forEach((it, i) => out.push("  ".repeat(s.items[i].level) + (s.items[i].table ? "" : "• ") + it.text));
+    if ((tr.imgItems || []).length) {
+      out.push("Testo nelle immagini:");
+      tr.imgItems.forEach((it) => out.push("  • " + it.text));
+    }
     if (tr.speaker.length) out.push("Note del relatore: " + tr.speaker.join(" "));
     if (s.user && s.user.trim()) out.push("Mie annotazioni: " + s.user.trim());
     return out.join("\n");
@@ -697,12 +1406,15 @@
   async function translatedSlide(s, lang) {
     const from = s.lang && s.lang !== "unknown" ? s.lang : (lang === "it" ? "en" : "it");
     if (from === lang) return null;
-    const arr = [s.title, ...s.items.map((i) => i.text), ...s.speaker];
+    const img = s.imgItems || [];
+    const arr = [s.title, ...s.items.map((i) => i.text), ...img.map((i) => i.text), ...s.speaker];
     const tr = await Translate.lines(arr, from, lang);
+    const a = 1 + s.items.length, b = a + img.length;
     return {
       title: tr[0],
       items: s.items.map((it, i) => ({ text: tr[1 + i] })),
-      speaker: tr.slice(1 + s.items.length),
+      imgItems: img.map((it, i) => ({ text: tr[a + i] })),
+      speaker: tr.slice(b),
     };
   }
 
@@ -734,7 +1446,7 @@
       const s = state.slides.find((x) => x.id === id);
       const r = rowsById.get(id);
       if (!s || !r) return;
-      if (s.kind === "pdf" && !r.rendered && state.view === "both") { r.rendered = true; thumbQueue.push(s); pumpThumbs(); }
+      if ((s.kind === "pdf" || s.kind === "img") && !r.rendered && state.view === "both") { r.rendered = true; thumbQueue.push(s); pumpThumbs(); }
       if (state.lang !== "orig") syncLang(s);
       if (!r.fitted) { r.fitted = true; r.fit(); }
     });
@@ -748,6 +1460,15 @@
       const r = rowsById.get(s.id);
       if (!r) continue;
       try {
+        if (s.kind === "img") {
+          const url = await imageUrl(s);
+          const img = new Image();
+          img.alt = "Slide " + s.n;
+          img.src = url;
+          r.thumb.textContent = "";
+          r.thumb.append(img);
+          continue;
+        }
         const doc = await openPdf(s.fileId);
         const page = await doc.getPage(s.index);
         const vp1 = page.getViewport({ scale: 1 });
@@ -770,6 +1491,16 @@
       }
     }
     thumbBusy = false;
+  }
+
+  const imageUrls = new Map();
+  async function imageUrl(s) {
+    if (imageUrls.has(s.id)) return imageUrls.get(s.id);
+    const rec = await DB.get("bytes", s.id);
+    if (!rec) throw new Error("Immagine non disponibile");
+    const url = URL.createObjectURL(new Blob([rec.buf], { type: rec.type || "" }));
+    imageUrls.set(s.id, url);
+    return url;
   }
 
   function renderAll() {
@@ -806,40 +1537,62 @@
     busy = busy.then(() => importFiles(files));
   }
 
+  const DOC_KINDS = { pdf: "pdf", pptx: "pptx", ppsx: "pptx", potx: "pptx", pptm: "pptx", ppsm: "pptx", ppt: "ppt", pps: "ppt", pot: "ppt", odp: "odp", otp: "odp" };
+  const IMG_EXT = new Set(["jpg", "jpeg", "png", "gif", "bmp", "webp", "jfif", "avif"]);
+  const READERS = { pdf: readPdf, pptx: readPptx, ppt: readPpt, odp: readOdp };
+
+  function finishSlides(fileId, kind, pages) {
+    const slides = pages.map((p) => {
+      const s = {
+        id: uid(), fileId, kind, index: p.index, title: p.title, items: p.items, imgItems: p.imgItems || [],
+        speaker: p.speaker || [], ratio: p.ratio, ocr: !!p.ocr, ocrFailed: !!p.ocrFailed, name: p.name, user: "",
+      };
+      s.lang = detectLang(slideText(s));
+      return s;
+    });
+    // Lingua prevalente del file per le slide brevi in cui non si capisce
+    const votes = { it: 0, en: 0 };
+    slides.forEach((s) => { if (s.lang !== "unknown") votes[s.lang]++; });
+    const main = votes.it === votes.en ? "unknown" : votes.it > votes.en ? "it" : "en";
+    slides.forEach((s) => { if (s.lang === "unknown") s.lang = main; });
+    return slides;
+  }
+  async function addFileRecord(name, kind) {
+    const frec = { id: uid(), name, kind, order: state.files.reduce((m, f) => Math.max(m, f.order), 0) + 1 };
+    state.files.push(frec);
+    await DB.put("files", frec);
+    return frec;
+  }
+
   async function importFiles(files) {
     const prog = $("#progress"), bar = $("#progressBar"), txt = $("#progressText");
     prog.hidden = false;
     const skipped = [];
     let total = 0;
-    for (let fi = 0; fi < files.length; fi++) {
-      const file = files[fi];
+    const docs = [], images = [];
+    for (const f of files) {
+      const ext = extOf(f.name);
+      if (DOC_KINDS[ext]) docs.push(f);
+      else if (IMG_EXT.has(ext) || /^image\//.test(f.type)) images.push(f);
+      else skipped.push(f.name + (ext === "key" ? " (da Keynote esporta in PDF o PowerPoint)" : " (formato non supportato)"));
+    }
+    const nAll = docs.length + (images.length ? 1 : 0);
+    for (let fi = 0; fi < docs.length; fi++) {
+      const file = docs[fi];
       const name = file.name;
-      const ext = (name.split(".").pop() || "").toLowerCase();
-      const kind = ext === "pdf" ? "pdf" : ext === "pptx" ? "pptx" : null;
-      if (!kind) { skipped.push(name + (ext === "ppt" ? " (salvalo come .pptx o PDF)" : "")); continue; }
-      txt.textContent = `${name} (${fi + 1}/${files.length})`;
+      const kind = DOC_KINDS[extOf(name)];
+      txt.textContent = `${name} (${fi + 1}/${nAll})`;
       bar.style.width = "0%";
       try {
         const bytes = await file.arrayBuffer();
-        const onPage = (i, n) => { bar.style.width = Math.round((i / n) * 100) + "%"; txt.textContent = `${name} — ${i}/${n} (${fi + 1}/${files.length} file)`; };
-        const pages = kind === "pdf" ? await readPdf(file, bytes, onPage) : await readPptx(file, bytes, onPage);
-        const fileId = uid();
-        const order = state.files.reduce((m, f) => Math.max(m, f.order), 0) + 1;
-        const frec = { id: fileId, name, kind, order };
-        state.files.push(frec);
-        if (kind === "pdf") fileBytes.set(fileId, bytes);
-        await DB.put("files", frec);
-        if (kind === "pdf") await DB.put("bytes", bytes, fileId);
-        const slides = pages.map((p) => {
-          const s = { id: uid(), fileId, kind, index: p.index, title: p.title, items: p.items, speaker: p.speaker, ratio: p.ratio, user: "" };
-          s.lang = detectLang(slideText(s));
-          return s;
-        });
-        // Lingua prevalente del file per le slide brevi in cui non si capisce
-        const votes = { it: 0, en: 0 };
-        slides.forEach((s) => { if (s.lang !== "unknown") votes[s.lang]++; });
-        const main = votes.it === votes.en ? "unknown" : votes.it > votes.en ? "it" : "en";
-        slides.forEach((s) => { if (s.lang === "unknown") s.lang = main; });
+        const onPage = (i, n, what) => {
+          bar.style.width = Math.round((i / n) * 100) + "%";
+          txt.textContent = `${what || "Lettura"}: ${name} — ${i}/${n}` + (nAll > 1 ? ` (file ${fi + 1} di ${nAll})` : "");
+        };
+        const pages = await READERS[kind](file, bytes, onPage);
+        const frec = await addFileRecord(name, kind);
+        if (kind === "pdf") { fileBytes.set(frec.id, bytes); await DB.put("bytes", bytes, frec.id); }
+        const slides = finishSlides(frec.id, kind, pages);
         state.slides.push(...slides);
         await DB.putMany("slides", slides);
         appendSlides(slides);
@@ -849,9 +1602,40 @@
         skipped.push(name + (/password/i.test(String(e && e.message)) ? " (protetto da password)" : " (file non leggibile)"));
       }
     }
+    if (images.length) {
+      // Le immagini caricate insieme diventano un unico gruppo, in ordine di nome
+      images.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+      const frec = await addFileRecord(images.length === 1 ? images[0].name : `Immagini (${images.length})`, "img");
+      const slides = [];
+      for (let i = 0; i < images.length; i++) {
+        const f = images[i];
+        bar.style.width = Math.round((i / images.length) * 100) + "%";
+        txt.textContent = `Lettura del testo dalle immagini: ${i + 1}/${images.length}`;
+        try {
+          const buf = await f.arrayBuffer();
+          const p = await readImage(f, buf);
+          const [s] = finishSlides(frec.id, "img", [{ ...p, index: i + 1, name: f.name }]);
+          await DB.put("bytes", { buf, type: f.type || MIME[extOf(f.name)] || "" }, s.id);
+          slides.push(s);
+        } catch (e) {
+          console.error(e);
+          skipped.push(f.name + " (immagine non leggibile)");
+        }
+      }
+      if (slides.length) {
+        state.slides.push(...slides);
+        await DB.putMany("slides", slides);
+        appendSlides(slides);
+        total += slides.length;
+      } else {
+        state.files = state.files.filter((x) => x.id !== frec.id);
+        DB.del("files", frec.id);
+      }
+    }
     prog.hidden = true;
-    if (skipped.length) toast("Non caricati: " + skipped.join(", "), 7000);
+    if (skipped.length) toast("Non caricati: " + skipped.join(", "), 8000);
     else if (total) toast(`Caricate ${total} slide`);
+    refreshChrome();
   }
 
   async function removeFile(fileId) {
@@ -860,7 +1644,7 @@
     const gone = state.slides.filter((s) => s.fileId === fileId);
     state.slides = state.slides.filter((s) => s.fileId !== fileId);
     state.files = state.files.filter((x) => x.id !== fileId);
-    gone.forEach((s) => { const r = rowsById.get(s.id); if (r) { io.unobserve(r.row); r.row.remove(); rowsById.delete(s.id); } DB.del("slides", s.id); });
+    gone.forEach((s) => { if (s.kind === "img") DB.del("bytes", s.id); const r = rowsById.get(s.id); if (r) { io.unobserve(r.row); r.row.remove(); rowsById.delete(s.id); } DB.del("slides", s.id); });
     DB.del("files", fileId);
     DB.del("bytes", fileId);
     fileBytes.delete(fileId);
@@ -875,6 +1659,7 @@
     pdfDocs.forEach((p) => p.then((x) => x.destroy()).catch(() => {}));
     pdfDocs.clear(); fileBytes.clear();
     await DB.clear("files"); await DB.clear("bytes"); await DB.clear("slides");
+    imageUrls.forEach((u) => URL.revokeObjectURL(u)); imageUrls.clear();
     renderAll();
   }
 
@@ -923,6 +1708,15 @@
         if (vs[viewerIdx] !== s) return;
         body.textContent = "";
         body.append(c);
+      } catch (e) { body.append(el("p", null, "Anteprima non disponibile")); }
+    } else if (s.kind === "img") {
+      try {
+        const im = new Image();
+        im.className = "viewer-img";
+        im.src = await imageUrl(s);
+        if (vs[viewerIdx] !== s) return;
+        body.textContent = "";
+        body.append(im);
       } catch (e) { body.append(el("p", null, "Anteprima non disponibile")); }
     } else {
       const box = el("div", "textslide-big");
@@ -984,6 +1778,7 @@
           d.items.forEach((it, i) => { h += `<li style="margin-left:${s.items[i].level * 18}pt">${esc(it.text)}</li>`; });
           h += "</ul>";
         }
+        if ((d.imgItems || []).length) h += `<p class="s">Testo nelle immagini:</p><ul>${d.imgItems.map((it) => `<li>${esc(it.text)}</li>`).join("")}</ul>`;
         if (d.speaker.length) h += `<p class="n"><b>Note del relatore:</b> ${esc(d.speaker.join(" "))}</p>`;
         if (s.user && s.user.trim()) h += `<p class="m"><b>Mie annotazioni:</b> ${esc(s.user.trim()).replace(/\n/g, "<br>")}</p>`;
       }

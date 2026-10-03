@@ -10,6 +10,10 @@ const parts = {
   "/*__PDFWORKER__*/": safe(r("vendor/pdf.worker.min.js")),
   "/*__JSZIP__*/": safe(r("vendor/jszip.min.js")),
   "/*__APP__*/": safe(r("src/app.js")),
+  // Motore OCR (Tesseract) e lingue italiano/inglese, incorporati come testo
+  "/*__TESSCORE__*/": safe(r("vendor/tesseract-core-simd-lstm.wasm.js")),
+  "/*__TESSENG__*/": fs.readFileSync(path.join(__dirname, "vendor/eng.traineddata.gz")).toString("base64"),
+  "/*__TESSITA__*/": fs.readFileSync(path.join(__dirname, "vendor/ita.traineddata.gz")).toString("base64"),
 };
 let html = r("src/index.html");
 for (const [k, v] of Object.entries(parts)) html = html.replace(k, () => v);

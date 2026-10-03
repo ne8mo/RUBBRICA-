@@ -37,13 +37,13 @@
 
 <main id="main">
   <section id="upload" class="upload empty">
-    <input id="fileInput" type="file" accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" multiple hidden>
+    <input id="fileInput" type="file" accept=".pdf,.pptx,.ppsx,.potx,.pptm,.ppt,.pps,.odp,.jpg,.jpeg,.png,.gif,.bmp,.webp,image/*,application/pdf" multiple hidden>
     <div class="drop" id="drop" tabindex="0" role="button" aria-label="Carica slide">
       <div class="drop-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="40" height="40"><path d="M12 16V4M7 9l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </div>
       <p class="drop-title">Trascina qui le slide <span class="muted">oppure</span> <u>scegli i file</u></p>
-      <p class="drop-sub">PDF e PowerPoint (.pptx) · puoi caricarne quanti vuoi, anche insieme</p>
+      <p class="drop-sub">PDF, PowerPoint (.pptx e .ppt), LibreOffice (.odp), foto e scansioni (JPG, PNG) · anche tanti file insieme</p>
     </div>
     <div id="progress" class="progress" hidden>
       <div class="bar"><div id="progressBar"></div></div>
@@ -103,6 +103,9 @@
 <script>/*__PDFJS__*/</script>
 <script>/*__PDFWORKER__*/</script>
 <script>/*__JSZIP__*/</script>
+<script type="text/plain" id="tess-core">/*__TESSCORE__*/</script>
+<script type="text/plain" id="tess-eng">/*__TESSENG__*/</script>
+<script type="text/plain" id="tess-ita">/*__TESSITA__*/</script>
 <script>/*__APP__*/</script>
 </body>
 </html>

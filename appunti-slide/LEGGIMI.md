@@ -5,7 +5,11 @@ App che funziona sul tuo computer e non serve installarla. Carichi le slide e ot
 ## Come si usa
 1. Fai **doppio clic su `AppuntiSlide.html`**. Si apre nel browser (meglio Chrome o Edge).
 2. Trascina le slide nel riquadro al centro, oppure clicca **scegli i file**.
-   Puoi caricare file **PDF** e **PowerPoint (.pptx)**, anche tanti insieme.
+   Puoi caricare, anche tanti insieme:
+   - **PDF**, compresi quelli scansionati
+   - **PowerPoint** nuovo (.pptx, .ppsx) e vecchio (.ppt, .pps)
+   - **LibreOffice / OpenOffice** (.odp)
+   - **foto e scansioni** (JPG, PNG, GIF, BMP, WEBP): ogni immagine diventa una slide
 3. Per ogni slide vedi a sinistra l'immagine e a destra gli appunti.
    Sotto ogni slide c'è uno spazio per scrivere le **tue annotazioni**, che si salvano da sole.
 
@@ -13,8 +17,11 @@ App che funziona sul tuo computer e non serve installarla. Carichi le slide e ot
 - Riportano **solo il testo che c'è nelle slide**, nello stesso ordine: titolo, punti, sottopunti, tabelle.
   Nei PowerPoint ci sono anche le **note del relatore**.
 - L'app non inventa e non riassume nulla. Toglie solo i numeri di pagina e le intestazioni o i piè di pagina che si ripetono su tutte le slide.
-- Se una slide è solo un'immagine (per esempio una scansione), l'app non può leggerne il testo e te lo segnala.
-- I vecchi file `.ppt`: aprili in PowerPoint e salvali come `.pptx` o PDF.
+- **Slide fatte di immagini** (scansioni, foto, testo dentro un'immagine): l'app legge il testo dall'immagine, tutto sul computer e senza internet.
+  Questi appunti hanno l'etichetta gialla **"letto dall'immagine"**. Il riconoscimento automatico è molto preciso sulle immagini nitide, ma su foto storte, sfocate o scritte molto piccole può sbagliare qualche lettera: confrontali con la slide, che vedi accanto.
+- Se una slide ha sia testo sia immagini con scritte (per esempio uno screenshot o una tabella incollata come immagine), il testo delle immagini compare a parte, sotto **"Testo nelle immagini della slide"**.
+- Le scritte a mano e le immagini molto piccole o confuse possono non essere lette. Le foto senza scritte vengono ignorate.
+- Keynote (.key): esporta prima la presentazione in PDF o PowerPoint.
 
 ## Traduzione italiano ⇄ inglese
 - **Appunti in** (in alto): scegli *Italiano* o *English* e tutti gli appunti vengono mostrati tradotti.
@@ -34,5 +41,5 @@ Se riapri il file con lo stesso browser, ritrovi slide e annotazioni.
 **Svuota tutto** cancella ogni cosa.
 
 ---
-Per gli sviluppatori: il codice sorgente è in `src/` e le librerie (pdf.js, JSZip) sono in `vendor/`.
+Per gli sviluppatori: il codice sorgente è in `src/` e le librerie (pdf.js, JSZip, Tesseract OCR con le lingue italiano e inglese) sono in `vendor/`.
 Con `node build.js` si rigenera `AppuntiSlide.html`.
