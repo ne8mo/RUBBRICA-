@@ -1,11 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Solo gli account del negozio elencati qui possono leggere e scrivere.
-    // Per aggiungere una persona: aggiungi la sua email tra le parentesi quadre, separata da una virgola.
+    // Solo chi entra con un account del negozio può leggere e scrivere.
+    // IMPORTANTE: in Authentication → Impostazioni → Azioni utente la registrazione
+    // deve essere disattivata, così gli account li crea solo la titolare.
     match /{document=**} {
-      allow read, write: if request.auth != null
-        && request.auth.token.email in ['santagian97@gmail.com'];
+      allow read, write: if request.auth != null;
     }
   }
 }
