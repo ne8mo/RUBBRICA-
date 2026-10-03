@@ -151,6 +151,13 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px; }
 .imgtext { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
 .imgtext b { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: block; margin-bottom: 2px; }
 .viewer-body .viewer-img { max-width: 100%; max-height: calc(100vh - 80px); background: #fff; border-radius: 6px; }
+.unsure { background: #fff1b8; border-bottom: 2px dotted #c99a00; border-radius: 2px; cursor: help; }
+@media (prefers-color-scheme: dark) { .unsure { background: #4a3d10; border-bottom-color: #f0c96a; } }
+.edit-help { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.edit-area { width: 100%; border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; background: var(--surface); font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
+.edit-bar { display: flex; gap: 8px; margin-top: 6px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 .notes h3 { margin: 6px 0 6px; font-size: 17px; line-height: 1.35; }
 .notes ul { margin: 0; padding-left: 20px; }
 .notes li { margin: 2px 0; overflow-wrap: anywhere; }
@@ -224,4 +231,5 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px; }
   .mynote { border: 0; padding: 0; resize: none; }
   .mynote.blank { display: none; }
   .badge { background: none; padding: 0; }
+  .unsure { background: none; border-bottom: 1px dotted #999; }
 }

@@ -16,9 +16,12 @@ App che funziona sul tuo computer e non serve installarla. Carichi le slide e ot
 ## Gli appunti
 - Riportano **solo il testo che c'è nelle slide**, nello stesso ordine: titolo, punti, sottopunti, tabelle.
   Nei PowerPoint ci sono anche le **note del relatore**.
+- Rispetta l'impaginazione: le slide a **due colonne** si leggono una colonna per volta, le **tabelle** diventano righe con le celle separate da «|», le frasi che vanno a capo restano intere e i pedici restano al loro posto (CO2).
 - L'app non inventa e non riassume nulla. Toglie solo i numeri di pagina e le intestazioni o i piè di pagina che si ripetono su tutte le slide.
 - **Slide fatte di immagini** (scansioni, foto, testo dentro un'immagine): l'app legge il testo dall'immagine, tutto sul computer e senza internet.
-  Questi appunti hanno l'etichetta gialla **"letto dall'immagine"**. Il riconoscimento automatico è molto preciso sulle immagini nitide, ma su foto storte, sfocate o scritte molto piccole può sbagliare qualche lettera: confrontali con la slide, che vedi accanto.
+  Questi appunti hanno l'etichetta gialla **"letto dall'immagine"**. Sulle immagini difficili (foto storte, luce non uniforme, sfondi scuri, bassa risoluzione) l'app fa una seconda lettura più accurata e tiene la migliore.
+  Le parole su cui l'app non è sicura sono **evidenziate in giallo**: controllale sulla slide accanto.
+- **Correggi**: ogni slide ha il pulsante *Correggi* per sistemare a mano gli appunti (prima riga = titolo, ogni punto inizia con «- »). Le correzioni si salvano da sole.
 - Se una slide ha sia testo sia immagini con scritte (per esempio uno screenshot o una tabella incollata come immagine), il testo delle immagini compare a parte, sotto **"Testo nelle immagini della slide"**.
 - Le scritte a mano e le immagini molto piccole o confuse possono non essere lette. Le foto senza scritte vengono ignorate.
 - Keynote (.key): esporta prima la presentazione in PDF o PowerPoint.

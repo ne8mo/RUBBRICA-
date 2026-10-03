@@ -157,6 +157,13 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px; }
 .imgtext { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
 .imgtext b { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: block; margin-bottom: 2px; }
 .viewer-body .viewer-img { max-width: 100%; max-height: calc(100vh - 80px); background: #fff; border-radius: 6px; }
+.unsure { background: #fff1b8; border-bottom: 2px dotted #c99a00; border-radius: 2px; cursor: help; }
+@media (prefers-color-scheme: dark) { .unsure { background: #4a3d10; border-bottom-color: #f0c96a; } }
+.edit-help { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.edit-area { width: 100%; border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; background: var(--surface); font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
+.edit-bar { display: flex; gap: 8px; margin-top: 6px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 .notes h3 { margin: 6px 0 6px; font-size: 17px; line-height: 1.35; }
 .notes ul { margin: 0; padding-left: 20px; }
 .notes li { margin: 2px 0; overflow-wrap: anywhere; }
@@ -230,6 +237,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px; }
   .mynote { border: 0; padding: 0; resize: none; }
   .mynote.blank { display: none; }
   .badge { background: none; padding: 0; }
+  .unsure { background: none; border-bottom: 1px dotted #999; }
 }
 </style>
 </head>
@@ -289,7 +297,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px; }
       <span id="count" class="muted"></span>
       <button id="btnClear" class="btn ghost danger">Svuota tutto</button>
     </div>
-    <p class="hint">Gli appunti riportano <strong>solo il testo presente nelle slide</strong>, in ordine, senza aggiunte. Sotto ogni slide puoi scrivere le tue annotazioni: vengono salvate da sole.</p>
+    <p class="hint">Gli appunti riportano <strong>solo il testo presente nelle slide</strong>, in ordine, senza aggiunte. Sotto ogni slide puoi scrivere le tue annotazioni: vengono salvate da sole. Le parole <span class="unsure">evidenziate</span> sono state lette da un'immagine con poca sicurezza: controllale e, se serve, usa <strong>Correggi</strong>.</p>
     <div id="list" class="list view-both"></div>
   </section>
 </main>
@@ -790,22 +798,22 @@ else if (typeof exports === 'object')
     return p;
   }
 
+  // Pallino o numero d'elenco isolato (da tenere attaccato al testo che segue)
+  const MARKER_ONLY_RE = /^\s*([•●○◦▪▫■□◆◇►▶▸▹➢➤➔→⇒✓✔✗✘❖⦿⁃∙·‣\-–—*]|[-]|\(?\d{1,2}[.)]|\(?[a-zA-Z][.)])\s*$/;
+
   async function pageLines(page) {
-    const tc = await page.getTextContent({ disableCombineTextItems: false });
+    const tc = await page.getTextContent();
     const [, y0, , y1] = page.view;
     const height = Math.abs(y1 - y0) || 1;
+    const yMin = Math.min(y0, y1);
     // Elementi di testo con posizione e dimensione
     let items = [];
     for (const it of tc.items) {
-      if (!it.str || !it.str.trim()) {
-        if (it.str && items.length) items.push({ space: true, x: it.transform[4], y: it.transform[5] });
-        continue;
-      }
+      if (!it.str || !it.str.trim()) continue;
       const t = it.transform;
       const size = Math.hypot(t[2], t[3]) || it.height || 10;
-      items.push({ str: it.str, x: t[4], y: t[5], w: it.width || 0, size });
+      items.push({ str: it.str, x: t[4], y: t[5], w: it.width || 0, size, bot: t[5] - size * 0.2, top: t[5] + size * 0.8 });
     }
-    items = items.filter((i) => !i.space);
     // Via i doppioni (testo disegnato due volte per ombre/grassetto finto)
     const seen = new Set();
     items = items.filter((i) => {
@@ -814,35 +822,117 @@ else if (typeof exports === 'object')
       seen.add(k);
       return true;
     });
-    items.sort((a, b) => (b.y - a.y) || (a.x - b.x));
-    // Raggruppa in righe
-    const lines = [];
+    // 1) Righe: elementi che si sovrappongono in verticale (così pedici e apici restano nella riga)
+    items.sort((a, b) => (b.top - a.top) || (a.x - b.x));
+    const rows = [];
     for (const it of items) {
-      const last = lines[lines.length - 1];
-      if (last && Math.abs(last.y - it.y) <= Math.min(last.size, it.size) * 0.5) {
-        last.parts.push(it);
-        last.size = Math.max(last.size, it.size);
-      } else {
-        lines.push({ y: it.y, size: it.size, parts: [it] });
+      let row = null;
+      for (let k = rows.length - 1; k >= Math.max(0, rows.length - 4); k--) {
+        const r = rows[k];
+        const ov = Math.min(r.top, it.top) - Math.max(r.bot, it.bot);
+        if (ov >= 0.5 * Math.min(r.top - r.bot, it.top - it.bot)) { row = r; break; }
+      }
+      if (row) {
+        row.items.push(it);
+        if (it.size > row.size) { row.size = it.size; row.top = it.top; row.bot = it.bot; }
+      } else rows.push({ items: [it], top: it.top, bot: it.bot, size: it.size });
+    }
+    // 2) Segmenti: parti di riga separate da spazi grandi (colonne, celle di tabella)
+    const segs = [];
+    for (const r of rows) {
+      r.items.sort((a, b) => a.x - b.x);
+      let cur = null;
+      for (const it of r.items) {
+        const gap = cur ? it.x - cur.x1 : 0;
+        const big = Math.max(cur ? cur.size : 0, it.size);
+        // nuovo segmento se lo spazio è grande, o se dopo uno spazio medio comincia un nuovo pallino
+        const split = cur && !MARKER_ONLY_RE.test(cur.text) &&
+          (gap > big * 1.0 || (gap > big * 0.5 && MARKER_ONLY_RE.test(it.str)));
+        if (!cur || split) {
+          cur = { text: it.str, x0: it.x, x1: it.x + it.w, top: it.top, bot: it.bot, y: it.y, size: it.size };
+          segs.push(cur);
+          continue;
+        }
+        const needSpace = gap > Math.min(cur.size, it.size) * 0.15 && !/\s$/.test(cur.text) && !/^\s/.test(it.str);
+        cur.text += (needSpace ? " " : "") + it.str;
+        cur.x1 = Math.max(cur.x1, it.x + it.w);
+        cur.top = Math.max(cur.top, it.top);
+        cur.bot = Math.min(cur.bot, it.bot);
+        if (it.size > cur.size) { cur.size = it.size; cur.y = it.y; }
       }
     }
-    return lines.map((l) => {
-      l.parts.sort((a, b) => a.x - b.x);
-      let text = "";
-      let prevEnd = null;
-      for (const p of l.parts) {
-        if (prevEnd != null) {
-          const gap = p.x - prevEnd;
-          const needSpace = gap > p.size * 0.15 && !/\s$/.test(text) && !/^\s/.test(p.str);
-          // Colonne molto distanti sulla stessa riga: separale chiaramente
-          text += gap > p.size * 4 ? "   " : needSpace ? " " : "";
-        }
-        text += p.str;
-        prevEnd = p.x + p.w;
-      }
-      const rel = (l.y - Math.min(y0, y1)) / height; // 0 = fondo, 1 = cima
-      return { text: clean(text), x: l.parts[0].x, y: l.y, size: l.size, rel };
-    }).filter((l) => l.text);
+    segs.forEach((s) => { s.text = clean(s.text); });
+    // 3) Ordine di lettura: tagli orizzontali e verticali (colonne lette una per volta)
+    const ordered = [];
+    readingOrder(segs.filter((s) => s.text), ordered);
+    return ordered.map((s) => ({
+      text: s.text, x: s.x0, x1: s.x1, y: s.y, size: s.size, rel: (s.y - yMin) / height,
+      base: s.base, right: s.right, table: !!s.table,
+    }));
+  }
+
+  function bestGap(iv) {
+    if (iv.length < 2) return null;
+    const s = iv.slice().sort((a, b) => a[0] - b[0]);
+    let maxEnd = s[0][1], best = null;
+    for (let i = 1; i < s.length; i++) {
+      const g = s[i][0] - maxEnd;
+      if (g > 0 && (!best || g > best.gap)) best = { gap: g, at: maxEnd + g / 2 };
+      maxEnd = Math.max(maxEnd, s[i][1]);
+    }
+    return best;
+  }
+  function groupRows(segs) {
+    const rows = [];
+    segs.slice().sort((a, b) => b.top - a.top).forEach((s) => {
+      const r = rows.find((r) => Math.min(r.top, s.top) - Math.max(r.bot, s.bot) >= 0.4 * Math.min(r.top - r.bot, s.top - s.bot));
+      if (r) { r.segs.push(s); r.top = Math.max(r.top, s.top); r.bot = Math.min(r.bot, s.bot); }
+      else rows.push({ segs: [s], top: s.top, bot: s.bot });
+    });
+    rows.forEach((r) => r.segs.sort((a, b) => a.x0 - b.x0));
+    return rows;
+  }
+  // Una zona divisa in colonne è una tabella se le celle sono corte e allineate riga per riga
+  function tableRows(segs) {
+    if (segs.some((s) => stripBullet(s.text).bullet)) return null;
+    const rows = groupRows(segs);
+    const multi = rows.filter((r) => r.segs.length >= 2);
+    if (multi.length < 3 || multi.length < rows.length * 0.6) return null;
+    if (median(segs.map((s) => s.text.length)) > 30) return null;
+    return rows.map((r) => {
+      const f = r.segs[0];
+      if (r.segs.length === 1) return f;
+      return {
+        text: r.segs.map((s) => s.text).join("  |  "), x0: f.x0, x1: r.segs[r.segs.length - 1].x1,
+        top: r.top, bot: r.bot, y: f.y, size: Math.max(...r.segs.map((s) => s.size)), table: true,
+      };
+    });
+  }
+  function readingOrder(segs, out, base, right) {
+    if (base == null) {
+      base = Math.min(...segs.map((s) => s.x0));
+      right = Math.max(...segs.map((s) => s.x1));
+    }
+    const emit = (list) => list.forEach((s) => { s.base = base; s.right = right; out.push(s); });
+    if (segs.length <= 1) { emit(segs); return; }
+    const med = median(segs.map((s) => s.size));
+    const yg = bestGap(segs.map((s) => [s.bot, s.top]));
+    const xg = bestGap(segs.map((s) => [s.x0, s.x1]));
+    const xOk = xg && xg.gap > med * 0.8;
+    if (xOk && (!yg || xg.gap >= yg.gap)) {
+      const tr = tableRows(segs);
+      if (tr) { emit(tr); return; }
+      const L = segs.filter((s) => s.x1 <= xg.at), R = segs.filter((s) => s.x0 >= xg.at);
+      readingOrder(L, out, Math.min(...L.map((s) => s.x0)), Math.max(...L.map((s) => s.x1)));
+      readingOrder(R, out, Math.min(...R.map((s) => s.x0)), Math.max(...R.map((s) => s.x1)));
+      return;
+    }
+    if (yg) {
+      readingOrder(segs.filter((s) => s.bot >= yg.at), out, base, right);
+      readingOrder(segs.filter((s) => s.top <= yg.at), out, base, right);
+      return;
+    }
+    emit(segs.slice().sort((a, b) => (b.top - a.top) || (a.x0 - b.x0)));
   }
 
   function median(arr) {
@@ -852,24 +942,29 @@ else if (typeof exports === 'object')
   }
 
   // Trasforma le righe di una pagina in titolo + punti, senza aggiungere nulla.
+  // Ogni riga: {text, x, x1, y, size, base?, right?, table?, weak?}
   function linesToNotes(lines) {
-    if (!lines.length) return { title: "", items: [] };
+    if (!lines.length) return { title: "", titleWeak: [], items: [] };
     const sizes = lines.map((l) => l.size);
     const med = median(sizes);
     const max = Math.max(...sizes);
     let title = "";
+    let titleWeak = [];
     let body = lines;
+    const takeTitle = (tl) => {
+      title = tl.map((l) => stripBullet(l.text).text).join(" ");
+      titleWeak = tl.flatMap((l) => l.weak || []);
+    };
     // Titolo: le righe col carattere più grande, se è chiaramente più grande del resto
     if (lines.length === 1) {
-      title = lines[0].text;
+      takeTitle(lines);
       body = [];
     } else if (max >= med * 1.15) {
       const first = lines.findIndex((l) => l.size >= max * 0.95);
       if (first !== -1 && first <= 2) {
         let end = first;
         while (end + 1 < lines.length && lines[end + 1].size >= max * 0.95 && end - first < 3) end++;
-        const tlines = lines.slice(first, end + 1);
-        title = tlines.map((l) => stripBullet(l.text).text).join(" ");
+        takeTitle(lines.slice(first, end + 1));
         body = lines.slice(0, first).concat(lines.slice(end + 1));
       }
     }
@@ -878,27 +973,42 @@ else if (typeof exports === 'object')
     const items = [];
     let prev = null;
     for (const l of body) {
+      if (l.table) {
+        items.push({ text: l.text, level: 0, table: true });
+        prev = null;
+        continue;
+      }
       const sb = stripBullet(l.text);
       const en = ENUM_RE.test(l.text);
       const marker = sb.bullet || en;
       const text = sb.text;
-      const level = l.x - minX > l.size * 1.2 ? (l.x - minX > l.size * 3 ? 2 : 1) : 0;
-      const continues = prev && !marker && Math.abs(l.size - prev.size) <= prev.size * 0.12 &&
-        prev.y - l.y > 0 && (prev.y - l.y) <= prev.size * 1.9 && !/[.!?:;]$/.test(prev.item.text) &&
-        (/^[a-zà-ÿ(,]/.test(text) || /[,(\-–/]$/.test(prev.item.text) || /\b(e|ed|o|di|da|in|con|per|tra|fra|il|lo|la|i|gli|le|un|una|the|and|or|of|to|in|for|with|a|an)$/i.test(prev.item.text)) &&
-        l.x >= prev.x - prev.size * 0.5;
+      const indent = l.x - (l.base != null ? l.base : minX);
+      const level = indent > l.size * 1.2 ? (indent > l.size * 3 ? 2 : 1) : 0;
+      let continues = false;
+      if (prev && !marker && Math.abs(l.size - prev.size) <= prev.size * 0.12 && l.x >= prev.x - prev.size * 0.5 &&
+          !/[.!?:;]$/.test(prev.item.text)) {
+        const gap = prev.y - l.y;
+        // riga che va a capo: inizia in minuscolo, oppure la riga sopra arriva fino al margine destro
+        const lowerStart = /^[a-zà-ÿ(,]/.test(text) || /[,(\-–/]$/.test(prev.item.text) ||
+          /\b(e|ed|o|di|da|in|con|per|tra|fra|il|lo|la|i|gli|le|un|una|the|and|or|of|to|in|for|with|a|an)$/i.test(prev.item.text);
+        const fullLine = l.right != null && prev.x1 != null && prev.x1 >= l.right - prev.size * 4;
+        continues = gap > 0 && ((lowerStart && gap <= prev.size * 1.9) || (fullLine && gap <= prev.size * 1.5));
+      }
       if (continues) {
         const p = prev.item.text;
         if (/[a-zà-ÿ]-$/.test(p) && /^[a-zà-ÿ]/.test(text)) prev.item.text = p.slice(0, -1) + text;
         else prev.item.text = p + " " + text;
+        if (l.weak && l.weak.length) prev.item.weak = (prev.item.weak || []).concat(l.weak);
         prev.y = l.y;
+        prev.x1 = l.x1;
         continue;
       }
       const item = { text, level };
+      if (l.weak && l.weak.length) item.weak = l.weak.slice();
       items.push(item);
-      prev = { item, size: l.size, y: l.y, x: l.x };
+      prev = { item, size: l.size, y: l.y, x: l.x, x1: l.x1 };
     }
-    return { title, items };
+    return { title, titleWeak, items };
   }
 
   /* ------------------------------------------------------------------ */
@@ -908,6 +1018,27 @@ else if (typeof exports === 'object')
     // Codice eseguito nei worker, dopo il motore Tesseract incluso nella pagina.
     const WORKER_SRC = `
 let M, api;
+// Punteggio di una lettura: somma delle confidenze delle parole lette bene
+function score(tsv) {
+  let sc = 0, n = 0, sum = 0;
+  for (const row of tsv.split("\\n")) {
+    const c = row.split("\\t");
+    if (c[0] !== "5" || !c[11] || !c[11].trim()) continue;
+    const conf = +c[10];
+    n++; sum += conf;
+    if (conf >= 60) sc += conf * c[11].trim().length;
+  }
+  return { sc, mean: n ? sum / n : 0 };
+}
+function read(method) {
+  api.SetVariable("thresholding_method", String(method));
+  api.SetImageFile(1, 0);
+  api.FindLines();
+  const a = api.GetGradient ? api.GetGradient() : api.GetAngle();
+  if (Math.abs(a) >= 0.005) api.SetImageFile(1, a);
+  api.Recognize(null);
+  return api.GetTSVText(0);
+}
 onmessage = async (e) => {
   const m = e.data;
   try {
@@ -918,15 +1049,18 @@ onmessage = async (e) => {
       const st = api.Init(null, Object.keys(m.langs).join("+"), 1);
       api.SetVariable("tessedit_pageseg_mode", "3");
       api.SetVariable("user_defined_dpi", "300");
+      api.SetVariable("tessedit_char_blacklist", "|");
       postMessage({ type: "ready", st });
     } else if (m.type === "ocr") {
       M.FS.writeFile("/input", new Uint8Array(m.img));
-      api.SetImageFile(1, 0);
-      api.FindLines();
-      const a = api.GetGradient ? api.GetGradient() : api.GetAngle();
-      if (Math.abs(a) >= 0.005) api.SetImageFile(1, a);
-      api.Recognize(null);
-      postMessage({ type: "result", id: m.id, tsv: api.GetTSVText(0) });
+      // 1a lettura normale; se l'immagine è difficile, 2a lettura con soglia adattiva (luce non uniforme, foto)
+      let tsv = read(0);
+      const s1 = score(tsv);
+      if (s1.mean < 93) {
+        const tsv2 = read(2);
+        if (score(tsv2).sc > s1.sc) tsv = tsv2;
+      }
+      postMessage({ type: "result", id: m.id, tsv });
     }
   } catch (err) {
     postMessage({ type: "error", id: m.id, msg: String((err && err.message) || err) });
@@ -1017,7 +1151,7 @@ onmessage = async (e) => {
       if (c.length < 12) continue;
       const level = +c[0];
       const box = { left: +c[6], top: +c[7], w: +c[8], h: +c[9] };
-      if (level === 4) { cur = { ...box, words: [] }; lines.push(cur); }
+      if (level === 4) { cur = { ...box, para: c[2] + "." + c[3], words: [] }; lines.push(cur); }
       else if (level === 5 && cur && c[11].trim()) cur.words.push({ ...box, conf: +c[10], text: c[11].trim() });
     }
     const out = [];
@@ -1032,19 +1166,31 @@ onmessage = async (e) => {
         bullet = true;
         words = words.slice(1);
       }
+      // "I" maiuscola letta spesso come ] [ | oppure l: se è una parola isolata davanti a un'altra parola, è una "I"
+      words = words.map((w, k) => (/^[\][|]$/.test(w.text) || (k === 0 && w.text === "l")) && words[k + 1] && /^\p{L}/u.test(words[k + 1].text)
+        ? { ...w, text: "I", conf: 40 } : w);
       const conf = words.reduce((a, w) => a + w.conf, 0) / words.length;
       if (conf < 60) continue;
       if (!words.some((w) => /[\p{L}\p{N}]{2,}/u.test(w.text) && w.conf >= 60)) continue;
       const text = clean(words.map((w) => w.text).join(" "));
       if (!text) continue;
+      const last = words[words.length - 1];
       out.push({
         text: (bullet ? "• " : "") + text,
         x: words[0].left,
+        x1: last.left + last.w,
         y: imgH - (l.top + l.h),
         size: medH,
         rel: 1 - (l.top + l.h / 2) / imgH,
+        para: l.para,
+        // parole lette con poca sicurezza: le evidenziamo perché vanno controllate
+        weak: words.filter((w) => w.conf < 50 && /[\p{L}\p{N}]/u.test(w.text)).map((w) => clean(w.text)),
       });
     }
+    // Margine destro di ogni paragrafo (serve a capire quando una riga va a capo)
+    const right = {};
+    out.forEach((l) => { right[l.para] = Math.max(right[l.para] || 0, l.x1); });
+    out.forEach((l) => { l.right = right[l.para]; });
     return out;
   }
 
@@ -1060,7 +1206,7 @@ onmessage = async (e) => {
   }
   function notesAsItems(lines) {
     const n = linesToNotes(lines);
-    return (n.title ? [{ text: n.title, level: 0 }] : []).concat(n.items);
+    return (n.title ? [{ text: n.title, level: 0, weak: n.titleWeak }] : []).concat(n.items);
   }
 
   function canvasToPng(canvas) {
@@ -1199,7 +1345,7 @@ onmessage = async (e) => {
         imgItems = notesAsItems(uncoveredLines(p.ocr.filter(keep), p.lines.map((l) => l.text).join(" ")));
       }
       return {
-        index: idx + 1, title: n.title, items: n.items, imgItems, speaker: [], ratio: p.ratio,
+        index: idx + 1, title: n.title, titleWeak: n.titleWeak, items: n.items, imgItems, speaker: [], ratio: p.ratio,
         ocr: p.mode === "full" && !!p.ocr, ocrFailed: !!p.ocrFailed,
       };
     });
@@ -1413,12 +1559,13 @@ onmessage = async (e) => {
         imgItems = await ocrPictures(zip, n.pics, hasText ? slideArea * 0.08 : 0, known);
         if (!hasText && imgItems.length) {
           n.title = imgItems[0].text;
+          n.titleWeak = imgItems[0].weak;
           n.items = imgItems.slice(1);
           imgItems = [];
           ocr = true;
         }
       }
-      out.push({ index: i + 1, title: n.title, items: n.items, imgItems, speaker, ratio: 16 / 9, ocr });
+      out.push({ index: i + 1, title: n.title, titleWeak: n.titleWeak, items: n.items, imgItems, speaker, ratio: 16 / 9, ocr });
       onPage(i + 1, slidePaths.length, "Lettura");
     }
     return out;
@@ -1518,18 +1665,20 @@ onmessage = async (e) => {
       const known = [title, ...items.map((x) => x.text)].join(" ");
       let imgItems = [];
       let ocr = false;
+      let titleWeak = [];
       if (pics.length) {
         onPage(i + 1, pages.length, "Lettura del testo dalle immagini");
         const maxArea = Math.max(...pics.map((p) => p.area));
         imgItems = await ocrPictures(zip, pics, known.trim() ? Math.max(40, maxArea * 0.3) : 0, known);
         if (!known.trim() && imgItems.length) {
           title = imgItems[0].text;
+          titleWeak = imgItems[0].weak;
           items = imgItems.slice(1);
           imgItems = [];
           ocr = true;
         }
       }
-      out.push({ index: i + 1, title, items, imgItems, speaker, ratio: 16 / 9, ocr });
+      out.push({ index: i + 1, title, titleWeak, items, imgItems, speaker, ratio: 16 / 9, ocr });
       onPage(i + 1, pages.length, "Lettura");
     }
     return out;
@@ -1738,7 +1887,7 @@ onmessage = async (e) => {
       const speaker = (notesById.get(notesRef) || []).flatMap(split);
       // Testo nelle immagini della slide
       let imgItems = [], ocr = false;
-      let t2 = title, it2 = items;
+      let t2 = title, it2 = items, tw = [];
       if (pibs.size) {
         onPage(i + 1, lists[0].length, "Lettura del testo dalle immagini");
         const lines = [];
@@ -1750,9 +1899,9 @@ onmessage = async (e) => {
         }
         const known = [title, ...items.map((x) => x.text)].join(" ");
         imgItems = notesAsItems(uncoveredLines(lines, known));
-        if (!known.trim() && imgItems.length) { t2 = imgItems[0].text; it2 = imgItems.slice(1); imgItems = []; ocr = true; }
+        if (!known.trim() && imgItems.length) { t2 = imgItems[0].text; tw = imgItems[0].weak; it2 = imgItems.slice(1); imgItems = []; ocr = true; }
       }
-      out.push({ index: i + 1, title: t2, items: it2, imgItems, speaker, ratio: 4 / 3, ocr });
+      out.push({ index: i + 1, title: t2, titleWeak: tw, items: it2, imgItems, speaker, ratio: 4 / 3, ocr });
       onPage(i + 1, lists[0].length, "Lettura");
     }
     return out;
@@ -1767,7 +1916,7 @@ onmessage = async (e) => {
     const ratio = img.w / img.h;
     const lines = await OCR.recognize(img.png, img.h);
     const n = linesToNotes(lines.filter((l) => !(isPageNumber(stripBullet(l.text).text) && (l.rel > 0.85 || l.rel < 0.15))));
-    return { title: n.title, items: n.items, imgItems: [], speaker: [], ratio, ocr: true };
+    return { title: n.title, titleWeak: n.titleWeak, items: n.items, imgItems: [], speaker: [], ratio, ocr: true };
   }
   /* ------------------------------------------------------------------ */
   /* Riconoscimento lingua (semplice, locale)                           */
@@ -2002,7 +2151,10 @@ onmessage = async (e) => {
       o.title = "Testo riconosciuto automaticamente da un'immagine: controllalo con la slide";
       head.append(o);
     }
-    head.append(trTag, copy);
+    const fix = el("button", "mini", "Correggi");
+    fix.title = "Correggi a mano gli appunti di questa slide";
+    fix.onclick = () => editSlide(s);
+    head.append(trTag, fix, copy);
     const content = el("div", "content");
     const ta = el("textarea", "mynote");
     ta.placeholder = "Le tue annotazioni su questa slide…";
@@ -2024,17 +2176,32 @@ onmessage = async (e) => {
     return row;
   }
 
+  // Testo con le parole incerte (lette male dall'immagine) evidenziate
+  function withWeak(tag, cls, text, weak) {
+    const e = el(tag, cls);
+    if (!weak || !weak.length) { e.textContent = text; return e; }
+    const set = new Set(weak);
+    text.split(/(\s+)/).forEach((tok) => {
+      if (tok && set.has(tok)) {
+        const m = el("span", "unsure", tok);
+        m.title = "Parola letta dall'immagine con poca sicurezza: controllala sulla slide";
+        e.append(m);
+      } else e.append(document.createTextNode(tok));
+    });
+    return e;
+  }
+
   function renderContent(s, r, tr) {
-    // tr = versione tradotta {title, items[], speaker[]} oppure null per l'originale
+    // tr = versione tradotta {title, items[], imgItems[], speaker[]} oppure null per l'originale
     const d = tr || s;
     const c = r.content;
     c.textContent = "";
-    if (d.title) c.append(el("h3", null, d.title));
+    if (d.title) c.append(withWeak("h3", null, d.title, tr ? null : s.titleWeak));
     if (d.items.length) {
       const ul = el("ul");
       d.items.forEach((it, i) => {
-        const li = el("li", (s.items[i].table ? "tbl " : "") + (s.items[i].level ? "l" + s.items[i].level : ""), it.text);
-        ul.append(li);
+        const cls = (s.items[i].table ? "tbl " : "") + (s.items[i].level ? "l" + s.items[i].level : "");
+        ul.append(withWeak("li", cls, it.text, tr ? null : s.items[i].weak));
       });
       c.append(ul);
     }
@@ -2043,7 +2210,7 @@ onmessage = async (e) => {
       const box = el("div", "imgtext");
       box.append(el("b", null, "Testo nelle immagini della slide"));
       const ul = el("ul");
-      img.forEach((it, i) => ul.append(el("li", (s.imgItems[i].level ? "l" + s.imgItems[i].level : ""), it.text)));
+      img.forEach((it, i) => ul.append(withWeak("li", s.imgItems[i].level ? "l" + s.imgItems[i].level : "", it.text, tr ? null : s.imgItems[i].weak)));
       box.append(ul);
       c.append(box);
     }
@@ -2059,6 +2226,67 @@ onmessage = async (e) => {
       c.append(sp);
     }
     r.trTag.hidden = !tr;
+  }
+
+  /* ---------------- Correzione a mano degli appunti ---------------- */
+  const IMG_MARK = "[Testo nelle immagini]";
+  function notesToEditText(s) {
+    const out = [];
+    if (s.title) out.push(s.title);
+    s.items.forEach((it) => out.push(it.table ? it.text : "  ".repeat(it.level || 0) + "- " + it.text));
+    if ((s.imgItems || []).length) {
+      out.push("", IMG_MARK);
+      s.imgItems.forEach((it) => out.push("  ".repeat(it.level || 0) + "- " + it.text));
+    }
+    return out.join("\n");
+  }
+  function parseEditText(txt, hadTitle) {
+    const res = { title: "", items: [], imgItems: [] };
+    let target = res.items;
+    let first = true;
+    for (const raw of txt.split("\n")) {
+      if (!raw.trim()) continue;
+      if (raw.trim() === IMG_MARK) { target = res.imgItems; first = false; continue; }
+      const m = /^(\s*)[-•*]\s+(.*)$/.exec(raw);
+      if (first && !m && hadTitle !== false) { res.title = clean(raw); first = false; continue; }
+      first = false;
+      const text = clean(m ? m[2] : raw);
+      if (!text) continue;
+      const level = m ? Math.min(2, Math.floor(m[1].replace(/\t/g, "  ").length / 2)) : 0;
+      target.push(/ \| /.test(text) && !m ? { text, level: 0, table: true } : { text, level });
+    }
+    return res;
+  }
+  function editSlide(s) {
+    const r = rowsById.get(s.id);
+    if (!r || r.editing) return;
+    r.editing = true;
+    const c = r.content;
+    c.textContent = "";
+    const help = el("p", "edit-help", "Correggi il testo. Prima riga = titolo; ogni punto inizia con «- » (due spazi prima per un sottopunto).");
+    const ta = el("textarea", "edit-area");
+    ta.value = notesToEditText(s);
+    ta.rows = Math.min(20, ta.value.split("\n").length + 2);
+    const bar = el("div", "edit-bar");
+    const save = el("button", "btn small primary", "Salva");
+    const cancel = el("button", "btn small", "Annulla");
+    bar.append(save, cancel);
+    c.append(help, ta, bar);
+    ta.focus();
+    const close = () => { r.editing = false; r.shownLang = null; r.trData = null; renderContent(s, r, null); if (state.lang !== "orig") syncLang(s); };
+    cancel.onclick = close;
+    save.onclick = () => {
+      const res = parseEditText(ta.value, !!s.title || !s.items.length);
+      s.title = res.title;
+      s.items = res.items;
+      s.imgItems = res.imgItems;
+      s.titleWeak = [];
+      s.edited = true;
+      s.lang = detectLang(slideText(s)) === "unknown" ? s.lang : detectLang(slideText(s));
+      DB.put("slides", s);
+      close();
+      toast("Appunti corretti e salvati");
+    };
   }
 
   function rowPlainText(s) {
@@ -2216,7 +2444,7 @@ onmessage = async (e) => {
   function finishSlides(fileId, kind, pages) {
     const slides = pages.map((p) => {
       const s = {
-        id: uid(), fileId, kind, index: p.index, title: p.title, items: p.items, imgItems: p.imgItems || [],
+        id: uid(), fileId, kind, index: p.index, title: p.title, titleWeak: p.titleWeak || [], items: p.items, imgItems: p.imgItems || [],
         speaker: p.speaker || [], ratio: p.ratio, ocr: !!p.ocr, ocrFailed: !!p.ocrFailed, name: p.name, user: "",
       };
       s.lang = detectLang(slideText(s));
