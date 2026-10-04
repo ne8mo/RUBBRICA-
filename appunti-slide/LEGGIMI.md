@@ -25,6 +25,7 @@ App che funziona sul tuo computer e non serve installarla. Carichi le slide e ot
 - **Slide fatte di immagini** (scansioni, foto, testo dentro un'immagine): l'app legge il testo dall'immagine, tutto sul computer e senza internet.
   Questi appunti hanno l'etichetta gialla **"letto dall'immagine"**. Sulle immagini difficili (foto storte, luce non uniforme, sfondi scuri, bassa risoluzione) l'app fa una seconda lettura più accurata e tiene la migliore.
   Le parole su cui l'app non è sicura sono **evidenziate in giallo**: controllale sulla slide accanto.
+- **Eliminare un file**: sotto il riquadro di caricamento c'è l'elenco dei file caricati; **✕ Elimina** accanto al nome toglie quel file con tutti i suoi appunti (l'app chiede conferma). *Svuota tutto* elimina tutti i file.
 - **Eliminare**: passa con il mouse su un punto e clicca **✕** per eliminarlo; il pulsante **Elimina** in alto a destra di ogni slide la toglie tutta. Compare sempre **Annulla**, in caso di errore.
 - **Correggi**: ogni slide ha il pulsante *Correggi* per sistemare a mano gli appunti (prima riga = titolo, ogni punto inizia con «- »). Le correzioni si salvano da sole.
 - Se una slide ha sia testo sia immagini con scritte (per esempio uno screenshot o una tabella incollata come immagine), il testo delle immagini compare a parte, sotto **"Testo nelle immagini della slide"**.

@@ -780,10 +780,10 @@
       $("#scClose").onclick = () => toggle(false);
       $("#btnSchema").onclick = () => toggle();
       $("#scList").onchange = (e) => select(e.target.value);
-      $("#scNew").onclick = () => { const name = prompt("Nome del nuovo schema:", "Schema " + (schemas.length + 1)); if (name != null) create(name.trim() || undefined); };
-      $("#scRename").onclick = () => { const name = prompt("Nuovo nome dello schema:", cur.name); if (name && name.trim()) { cur.name = name.trim(); DB.put("schemas", cur); refreshList(); } };
-      $("#scDel").onclick = () => {
-        if (!confirm(`Eliminare lo schema "${cur.name}"?`)) return;
+      $("#scNew").onclick = async () => { const name = await ask("Nome del nuovo schema:", { ok: "Crea", input: "Schema " + (schemas.length + 1) }); if (name != null) create(name.trim() || undefined); };
+      $("#scRename").onclick = async () => { const name = await ask("Nuovo nome dello schema:", { ok: "Rinomina", input: cur.name }); if (name && name.trim()) { cur.name = name.trim(); DB.put("schemas", cur); refreshList(); } };
+      $("#scDel").onclick = async () => {
+        if (!(await ask(`Eliminare lo schema "${cur.name}"?`, { ok: "Elimina", danger: true }))) return;
         DB.del("schemas", cur.id);
         schemas = schemas.filter((s) => s.id !== cur.id);
         cur = null;

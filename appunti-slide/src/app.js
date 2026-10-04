@@ -2026,6 +2026,27 @@ onmessage = async (e) => {
   const list = $("#list");
   const rowsById = new Map();
 
+  // Finestra di conferma / richiesta di un nome, fatta dall'app (le finestrelle del browser
+  // possono essere bloccate, per esempio nell'anteprima online)
+  function ask(message, { ok = "OK", danger = false, input = null } = {}) {
+    return new Promise((resolve) => {
+      const dlg = $("#askDlg"), inp = $("#askInput"), okB = $("#askOk"), noB = $("#askCancel");
+      $("#askText").textContent = message;
+      inp.hidden = input == null;
+      if (input != null) inp.value = input;
+      okB.textContent = ok;
+      okB.classList.toggle("danger-btn", danger);
+      dlg.hidden = false;
+      (input != null ? inp : okB).focus();
+      if (input != null) inp.select();
+      const done = (v) => { dlg.hidden = true; okB.onclick = noB.onclick = inp.onkeydown = dlg.onkeydown = null; resolve(v); };
+      okB.onclick = () => done(input != null ? inp.value : true);
+      noB.onclick = () => done(input != null ? null : false);
+      dlg.onkeydown = (e) => { if (e.key === "Escape") { e.stopPropagation(); done(input != null ? null : false); } };
+      inp.onkeydown = (e) => { if (e.key === "Enter") done(inp.value); };
+    });
+  }
+
   // Messaggio in basso; con "action" compare un pulsante (es. Annulla)
   function toast(msg, ms = 3500, action) {
     const t = $("#toast");
@@ -2053,12 +2074,13 @@ onmessage = async (e) => {
     $("#btnExport").disabled = !has;
     const chips = $("#fileChips");
     chips.textContent = "";
+    $("#filesLabel").hidden = !state.files.length;
     state.files.slice().sort((a, b) => a.order - b.order).forEach((f) => {
       const c = el("span", "chip");
       c.append(el("span", "kind", f.kind === "img" ? "FOTO" : f.kind.toUpperCase()), el("span", null, f.name + " · " + state.slides.filter((s) => s.fileId === f.id).length));
-      const x = el("button", null, "✕");
-      x.title = "Togli questo file";
-      x.setAttribute("aria-label", "Togli " + f.name);
+      const x = el("button", "chip-del", "✕ Elimina");
+      x.title = "Elimina questo file e tutti i suoi appunti";
+      x.setAttribute("aria-label", "Elimina " + f.name + " e i suoi appunti");
       x.onclick = () => removeFile(f.id);
       c.append(x);
       chips.append(c);
@@ -2666,7 +2688,7 @@ onmessage = async (e) => {
 
   async function removeFile(fileId) {
     const f = state.files.find((x) => x.id === fileId);
-    if (!f || !confirm(`Togliere "${f.name}" e i suoi appunti?`)) return;
+    if (!f || !(await ask(`Eliminare "${f.name}" e tutti i suoi appunti?`, { ok: "Elimina", danger: true }))) return;
     const gone = state.slides.filter((s) => s.fileId === fileId);
     state.slides = state.slides.filter((s) => s.fileId !== fileId);
     state.files = state.files.filter((x) => x.id !== fileId);
@@ -2680,7 +2702,7 @@ onmessage = async (e) => {
   }
 
   async function clearAll() {
-    if (!confirm("Cancellare tutte le slide e tutti gli appunti?")) return;
+    if (!(await ask("Eliminare tutti i file caricati e tutti gli appunti?", { ok: "Elimina tutto", danger: true }))) return;
     state.files = []; state.slides = [];
     pdfDocs.forEach((p) => p.then((x) => x.destroy()).catch(() => {}));
     pdfDocs.clear(); fileBytes.clear();

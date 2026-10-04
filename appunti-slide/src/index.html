@@ -51,6 +51,7 @@
       <div class="bar"><div id="progressBar"></div></div>
       <span id="progressText"></span>
     </div>
+    <p id="filesLabel" class="files-label" hidden>File caricati — con <b>✕ Elimina</b> togli un file e tutti i suoi appunti</p>
     <div id="fileChips" class="chips"></div>
   </section>
 
@@ -174,6 +175,14 @@
     <button id="vClose" class="icon-btn" aria-label="Chiudi">✕</button>
   </div>
   <div id="vBody" class="viewer-body"></div>
+</div>
+
+<div id="askDlg" class="dlg-back" hidden>
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="askText">
+    <p id="askText" class="ask-text"></p>
+    <input id="askInput" class="ask-input" hidden>
+    <div class="dlg-bar"><button id="askCancel" class="btn">Annulla</button><button id="askOk" class="btn primary">OK</button></div>
+  </div>
 </div>
 
 <div id="toast" class="toast" hidden></div>

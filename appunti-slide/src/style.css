@@ -333,3 +333,12 @@ body.schema-open .thumb { max-width: 520px; }
   #printSchema h2 { font: 600 16pt system-ui, sans-serif; margin: 0 0 8pt; }
   .schema-panel, .add-line, .dlg-back { display: none !important; }
 }
+
+/* Elimina file e finestre di conferma */
+.files-label { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); text-align: center; }
+.chip .chip-del { width: auto; height: auto; padding: 2px 8px; font-size: 12px; color: var(--danger); border: 1px solid transparent; }
+.chip .chip-del:hover { background: var(--surface-2); border-color: var(--danger); color: var(--danger); }
+.ask-text { margin: 0 0 12px; font-size: 15px; }
+.ask-input { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: var(--surface); margin-bottom: 12px; }
+.btn.danger-btn { background: var(--danger); border-color: var(--danger); color: #fff; }
+#askDlg { z-index: 90; }
