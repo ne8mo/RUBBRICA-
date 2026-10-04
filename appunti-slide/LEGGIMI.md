@@ -39,22 +39,26 @@ Clicca **Schemi** in alto: accanto agli appunti si apre un foglio dove costruire
 - **Immagine** salva lo schema come PNG; **Stampa / PDF** lo stampa o lo salva in PDF.
 
 ## Traduzione italiano ⇄ inglese
+La traduzione avviene **tutta sul computer**: niente internet, niente servizi o app esterne. Il traduttore è dentro il file (è lo stesso motore che usa Firefox per tradurre senza connessione).
 - **Appunti in** (in alto): scegli *Italiano* o *English* e tutti gli appunti vengono mostrati tradotti.
   Le slide che sono già in quella lingua restano come sono.
 - **Traduttore**: scrivi o incolla un testo e la traduzione appare mentre scrivi. Il tasto ⇄ inverte le lingue.
 - Puoi anche **selezionare del testo** negli appunti e cliccare **Traduci**.
-- Chrome ed Edge aggiornati traducono direttamente sul computer, anche senza internet.
-  Con gli altri browser la traduzione usa internet.
-  La traduzione è automatica, quindi può contenere qualche imprecisione. Il testo originale delle slide non viene mai modificato.
+- La prima volta che traduci servono alcuni secondi per preparare il traduttore; dopo è immediato.
+- È una traduzione automatica, quindi può contenere qualche imprecisione. Il testo originale delle slide non viene mai modificato: per tornarci scegli *Lingua originale*.
 
 ## Esportare
 **Esporta appunti** → documento Word (.doc), testo (.txt) oppure stampa / salva come PDF.
 
 ## Dove finiscono i dati
-Tutto resta nel browser di questo computer. Niente viene inviato a nessuno, tranne il testo da tradurre quando la traduzione passa da internet.
+Tutto resta nel browser di questo computer. L'app non si collega a internet e non invia niente a nessuno.
 Se riapri il file con lo stesso browser, ritrovi slide e annotazioni.
 **Svuota tutto** cancella ogni cosa.
 
 ---
-Per gli sviluppatori: il codice sorgente è in `src/` e le librerie (pdf.js, JSZip, Tesseract OCR con le lingue italiano e inglese) sono in `vendor/`.
+## Il file
+`AppuntiSlide.html` pesa circa 55 MB perché contiene tutto: lettore di PDF e PowerPoint, lettura del testo nelle immagini e traduttore. Per mandarlo a qualcuno usa un servizio come Google Drive, WeTransfer o una chiavetta (per una normale email è troppo grande).
+
+---
+Per gli sviluppatori: il codice sorgente è in `src/` e le librerie sono in `vendor/`: pdf.js, JSZip, Tesseract OCR con le lingue italiano e inglese, e il traduttore Bergamot (Mozilla) con i modelli italiano⇄inglese di Firefox Translations in `vendor/traduzione/`.
 Con `node build.js` si rigenera `AppuntiSlide.html`.

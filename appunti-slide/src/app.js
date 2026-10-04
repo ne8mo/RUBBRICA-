@@ -1261,10 +1261,13 @@ onmessage = async (e) => {
   /* Traduzione: prima sul dispositivo (Chrome/Edge, offline), poi online */
   /* ------------------------------------------------------------------ */
   const Translate = (() => {
+    // Traduzione automatica tutta sul computer: motore e modelli italiano⇄inglese sono dentro il file.
+    // Nessuna connessione a internet e nessun servizio esterno.
     const cache = new Map();
-    const native = new Map();
-    let engine = "";
     let saveTimer = null;
+    let worker = null, ready = null, seq = 0;
+    const waiting = new Map();
+    const models = new Map();
 
     async function loadCache() {
       const c = await DB.get("kv", "trcache");
@@ -1279,112 +1282,92 @@ onmessage = async (e) => {
         DB.put("kv", obj, "trcache");
       }, 1500);
     }
-    const ready = new Map();      // coppia di lingue -> traduttore offline pronto
-    const preparing = new Set();
-    const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
-    // Restituisce subito il traduttore integrato se è già pronto; altrimenti
-    // ne avvia lo scaricamento in background e intanto si usa quello online.
-    async function getNative(from, to) {
-      const key = from + ">" + to;
-      if (ready.has(key)) return ready.get(key);
-      if (!("Translator" in self)) return null;
-      try {
-        const av = await withTimeout(self.Translator.availability({ sourceLanguage: from, targetLanguage: to }), 3000);
-        if (av === "available" || av === "readily") {
-          const t = await withTimeout(self.Translator.create({ sourceLanguage: from, targetLanguage: to }), 8000);
-          ready.set(key, t);
-          return t;
-        }
-        if ((av === "downloadable" || av === "downloading" || av === "after-download") && !preparing.has(key)) {
-          preparing.add(key);
-          self.Translator.create({ sourceLanguage: from, targetLanguage: to })
-            .then((t) => ready.set(key, t))
-            .catch(() => {})
-            .finally(() => preparing.delete(key));
-        }
-      } catch (e) { /* non disponibile */ }
-      return null;
-    }
-    async function fetchJson(url) {
-      const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), 10000);
-      try {
-        const r = await fetch(url, { signal: ac.signal });
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return await r.json();
-      } finally { clearTimeout(t); }
-    }
-    async function online(text, from, to) {
-      // Divide i testi lunghi in blocchi, rispettando gli a capo
-      const chunks = [];
-      let cur = "";
-      for (const line of text.split("\n")) {
-        if ((cur + "\n" + line).length > 1500 && cur) { chunks.push(cur); cur = line; }
-        else cur = cur ? cur + "\n" + line : line;
+    // Dati incorporati nella pagina (base64 + gzip); in alternativa file accanto alla pagina
+    async function data(id) {
+      const elx = document.getElementById(id);
+      let buf;
+      if (elx) buf = await (await fetch("data:application/octet-stream;base64," + elx.textContent.trim())).arrayBuffer();
+      else {
+        const r = await fetch("traduzione/" + id + ".bin.wasm"); // versione di anteprima: dati in file separati
+        if (!r.ok) throw new Error("Dati di traduzione mancanti");
+        buf = await r.arrayBuffer();
       }
-      if (cur) chunks.push(cur);
-      const out = [];
-      for (const c of chunks) {
-        let res = null;
-        try {
-          const url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=" + from + "&tl=" + to + "&q=" + encodeURIComponent(c);
-          const j = await fetchJson(url);
-          res = (j[0] || []).map((x) => x[0]).join("");
-        } catch (e) { /* passa al servizio successivo */ }
-        if (res == null) {
-          const parts = [];
-          for (const line of c.split("\n")) {
-            if (!line.trim()) { parts.push(line); continue; }
-            const url = "https://api.mymemory.translated.net/get?langpair=" + from + "|" + to + "&q=" + encodeURIComponent(line.slice(0, 480));
-            const j = await fetchJson(url);
-            if (!j || j.responseStatus !== 200) throw new Error("Servizio di traduzione non disponibile");
-            parts.push(j.responseData.translatedText);
-          }
-          res = parts.join("\n");
-        }
-        out.push(res);
-      }
-      return out.join("\n");
+      const u = new Uint8Array(buf, 0, 2);
+      if (u[0] !== 0x1f || u[1] !== 0x8b) return buf; // già decompresso
+      return new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
     }
+    function call(msg, transfer) {
+      return new Promise((res, rej) => {
+        const id = ++seq;
+        waiting.set(id, { res, rej });
+        worker.postMessage({ ...msg, id }, transfer || []);
+      });
+    }
+    function start() {
+      if (ready) return ready;
+      ready = (async () => {
+        const code = document.getElementById("mt-worker").textContent;
+        worker = new Worker(URL.createObjectURL(new Blob([code], { type: "text/javascript" })));
+        const boot = new Promise((res, rej) => {
+          worker.onmessage = (e) => {
+            const m = e.data;
+            if (m.type === "ready") res();
+            else if (m.type === "error" && m.id == null) rej(new Error(m.msg));
+            else {
+              const w = waiting.get(m.id);
+              if (!w) return;
+              waiting.delete(m.id);
+              if (m.type === "error") w.rej(new Error(m.msg)); else w.res(m);
+            }
+          };
+          worker.onerror = (e) => rej(new Error(e.message || "Traduttore non avviato"));
+        });
+        const wasm = await data("mt-wasm");
+        worker.postMessage({ type: "wasm", bin: wasm }, [wasm]);
+        await boot;
+      })();
+      ready.catch(() => { ready = null; });
+      return ready;
+    }
+    function model(pair) {
+      if (models.has(pair)) return models.get(pair);
+      const p = (async () => {
+        await start();
+        const [m, l, v] = await Promise.all([
+          data("mt-model-" + pair),
+          data("mt-lex-" + pair),
+          data("mt-vocab"),
+        ]);
+        await call({ type: "model", pair, model: m, lex: l, vocab: v }, [m, l, v]);
+      })();
+      models.set(pair, p);
+      p.catch(() => models.delete(pair));
+      return p;
+    }
+    // Prepara in anticipo il traduttore (per esempio quando si apre il pannello)
+    function prepare(from, to) { if (from !== to) model(from + to).catch(warn); }
+
     // Traduce un elenco di righe mantenendo la corrispondenza 1:1
     async function lines(arr, from, to) {
       const result = new Array(arr.length);
       const todo = [];
       arr.forEach((t, i) => {
-        if (!t || !t.trim()) { result[i] = t; return; }
+        if (!t || !t.trim() || from === to) { result[i] = t; return; }
         const k = from + to + "|" + t;
         if (cache.has(k)) result[i] = cache.get(k); else todo.push(i);
       });
       if (!todo.length) return result;
-      const nt = await getNative(from, to);
-      if (nt) {
-        engine = "device";
-        for (const i of todo) {
-          const tr = await withTimeout(nt.translate(arr[i]), 15000);
-          result[i] = tr; cache.set(from + to + "|" + arr[i], tr);
-        }
-      } else {
-        engine = "online";
-        const joined = todo.map((i) => arr[i]).join("\n");
-        const tr = (await online(joined, from, to)).split("\n");
-        if (tr.length === todo.length) {
-          todo.forEach((i, j) => { result[i] = tr[j]; cache.set(from + to + "|" + arr[i], tr[j]); });
-        } else {
-          // Se il servizio ha unito o spezzato righe, traduci una riga alla volta
-          for (const i of todo) {
-            const t1 = await online(arr[i], from, to);
-            result[i] = t1; cache.set(from + to + "|" + arr[i], t1);
-          }
-        }
-      }
+      const pair = from + to;
+      await model(pair);
+      const r = await call({ type: "translate", pair, texts: todo.map((i) => arr[i]) });
+      todo.forEach((i, j) => { result[i] = r.out[j]; cache.set(from + to + "|" + arr[i], r.out[j]); });
       persist();
       return result;
     }
     async function text(t, from, to) {
-      const ls = t.split("\n");
-      return (await lines(ls, from, to)).join("\n");
+      return (await lines(t.split("\n"), from, to)).join("\n");
     }
-    return { lines, text, loadCache, getNative, engine: () => engine };
+    return { lines, text, loadCache, prepare };
   })();
 
   /* ------------------------------------------------------------------ */
@@ -1657,7 +1640,7 @@ onmessage = async (e) => {
       r.shownLang = want;
     } catch (e) {
       r.shownLang = null;
-      if (!syncLang._warned) { syncLang._warned = true; toast("Traduzione non disponibile: serve Chrome/Edge aggiornato oppure una connessione a internet.", 6000); }
+      if (!syncLang._warned) { syncLang._warned = true; toast("Traduzione non riuscita: prova ad aggiornare il browser (Chrome, Edge, Firefox o Safari recenti).", 6000); }
     }
   }
 
@@ -2035,16 +2018,10 @@ onmessage = async (e) => {
       const out = await Translate.text(text, trFrom, trTo);
       if (seq !== trSeq) return;
       $("#trOut").textContent = out;
-      showEngine();
     } catch (e) {
       if (seq !== trSeq) return;
-      $("#trOut").textContent = "Traduzione non disponibile. Usa Chrome o Edge aggiornati (traduzione offline) oppure collegati a internet.";
+      $("#trOut").textContent = "Traduzione non riuscita: prova ad aggiornare il browser (Chrome, Edge, Firefox o Safari recenti).";
     }
-  }
-  function showEngine() {
-    const e = Translate.engine();
-    $("#trEngine").textContent = e === "device" ? "Traduzione eseguita sul computer (funziona anche senza internet)."
-      : e === "online" ? "Traduzione tramite internet (questo browser non ha la traduzione integrata)." : "";
   }
 
   // Traduzione al volo del testo selezionato negli appunti
@@ -2104,7 +2081,7 @@ onmessage = async (e) => {
       state.lang = e.target.value;
       DB.put("kv", state.lang, "lang");
       syncLang._warned = false;
-      if (state.lang !== "orig") Translate.getNative(state.lang === "it" ? "en" : "it", state.lang); // prepara il modello offline
+      if (state.lang !== "orig") Translate.prepare(state.lang === "it" ? "en" : "it", state.lang); // prepara il traduttore
       // Aggiorna subito le slide visibili, le altre quando si scorre
       rowsById.forEach((r) => { io.unobserve(r.row); io.observe(r.row); });
     });
@@ -2116,7 +2093,7 @@ onmessage = async (e) => {
     $("#btnTranslator").addEventListener("click", () => {
       const d = $("#translator");
       d.hidden = !d.hidden;
-      if (!d.hidden) { $("#trIn").focus(); Translate.getNative(trFrom, trTo); }
+      if (!d.hidden) { $("#trIn").focus(); Translate.prepare(trFrom, trTo); }
     });
     $("#closeTranslator").addEventListener("click", () => { $("#translator").hidden = true; });
     $("#trSwap").addEventListener("click", () => {

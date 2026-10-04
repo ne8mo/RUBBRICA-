@@ -1,0 +1,5 @@
+Traduttore offline italiano <-> inglese
+- Motore: bergamot-translator 0.4.9 (Mozilla / progetto Bergamot), licenza MPL-2.0.
+- Modelli: Firefox Translations (Mozilla), versione 0.3.3, coppie en->it e it->en
+  (fonte: bergamot-models-sandbox, verificati con gli hash SHA-256 del registro ufficiale).
+Tutto viene eseguito nel browser, senza connessione a internet.
