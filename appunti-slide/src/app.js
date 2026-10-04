@@ -17,12 +17,26 @@
   /* Archivio locale (IndexedDB): file, slide, annotazioni, traduzioni   */
   /* ------------------------------------------------------------------ */
   const DB = (() => {
+    // Archivio del browser (IndexedDB). Se il browser lo blocca o non risponde (succede in alcune
+    // anteprime online), l'app continua lo stesso tenendo i dati in memoria finché la pagina è aperta.
     let dbp = null;
+    let memory = false;
+    const mem = {};
+    const memStore = (n) => (mem[n] = mem[n] || new Map());
+    const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+    function goMemory(reason) {
+      if (memory) return;
+      memory = true;
+      console.warn("Archivio del browser non disponibile, uso la memoria:", reason);
+      const note = document.getElementById("memNote");
+      if (note) note.hidden = false;
+    }
     function open() {
       if (dbp) return dbp;
-      dbp = new Promise((res, rej) => {
+      dbp = withTimeout(new Promise((res, rej) => {
         let req;
         try { req = indexedDB.open("appunti-slide", 2); } catch (e) { rej(e); return; }
+        if (!req) { rej(new Error("archivio assente")); return; }
         req.onupgradeneeded = () => {
           const db = req.result;
           const has = (n) => db.objectStoreNames.contains(n);
@@ -34,12 +48,14 @@
         };
         req.onsuccess = () => res(req.result);
         req.onerror = () => rej(req.error);
-      });
+        req.onblocked = () => rej(new Error("archivio bloccato"));
+      }), 4000);
+      dbp.catch((e) => goMemory(e));
       return dbp;
     }
     async function tx(store, mode, fn) {
       const db = await open();
-      return new Promise((res, rej) => {
+      return withTimeout(new Promise((res, rej) => {
         const t = db.transaction(store, mode);
         const s = t.objectStore(store);
         let out;
@@ -47,16 +63,24 @@
         t.oncomplete = () => res(out);
         t.onerror = () => rej(t.error);
         t.onabort = () => rej(t.error);
-      });
+      }), 15000);
     }
     const reqP = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const keyOf = (val, key) => (key !== undefined ? key : val && val.id);
+    // ogni operazione: prima l'archivio del browser, altrimenti la memoria
+    async function run(idbOp, memOp, fallback) {
+      if (!memory) {
+        try { return await idbOp(); } catch (e) { if (!memory) { warn(e); if (/timeout|archivio|Security|InvalidState/i.test(String(e && (e.message || e.name)))) goMemory(e); else return fallback; } }
+      }
+      return memOp();
+    }
     return {
-      put: (store, val, key) => tx(store, "readwrite", (s) => { s.put(val, key); }).catch(warn),
-      putMany: (store, vals) => tx(store, "readwrite", (s) => { vals.forEach((v) => s.put(v)); }).catch(warn),
-      get: (store, key) => tx(store, "readonly", (s) => reqP(s.get(key))).catch(() => undefined),
-      all: (store) => tx(store, "readonly", (s) => reqP(s.getAll())).catch(() => []),
-      del: (store, key) => tx(store, "readwrite", (s) => { s.delete(key); }).catch(warn),
-      clear: (store) => tx(store, "readwrite", (s) => { s.clear(); }).catch(warn),
+      put: (store, val, key) => run(() => tx(store, "readwrite", (s) => { s.put(val, key); }), () => { memStore(store).set(keyOf(val, key), val); }),
+      putMany: (store, vals) => run(() => tx(store, "readwrite", (s) => { vals.forEach((v) => s.put(v)); }), () => { vals.forEach((v) => memStore(store).set(v.id, v)); }),
+      get: (store, key) => run(() => tx(store, "readonly", (s) => reqP(s.get(key))), () => memStore(store).get(key), undefined),
+      all: (store) => run(() => tx(store, "readonly", (s) => reqP(s.getAll())), () => Array.from(memStore(store).values()), []),
+      del: (store, key) => run(() => tx(store, "readwrite", (s) => { s.delete(key); }), () => { memStore(store).delete(key); }),
+      clear: (store) => run(() => tx(store, "readwrite", (s) => { s.clear(); }), () => { memStore(store).clear(); }),
     };
   })();
   function warn(e) { console.warn(e); }

@@ -342,3 +342,5 @@ body.schema-open .thumb { max-width: 520px; }
 .ask-input { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: var(--surface); margin-bottom: 12px; }
 .btn.danger-btn { background: var(--danger); border-color: var(--danger); color: #fff; }
 #askDlg { z-index: 90; }
+.mem-note { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: #fff4d6; color: #7a5200; font-size: 13px; }
+@media (prefers-color-scheme: dark) { .mem-note { background: #3a3220; color: #f0c96a; } }
