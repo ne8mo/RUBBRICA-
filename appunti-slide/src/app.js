@@ -79,7 +79,7 @@
   /* Pulizia del testo                                                  */
   /* ------------------------------------------------------------------ */
   // Caratteri usati come pallini negli elenchi (anche quelli dei font Symbol/Wingdings).
-  const BULLET_RE = /^[\s]*([•●○◦▪▫■□◆◇►▶▸▹➢➤➔→⇒✓✔✗✘❖⦿⁃∙·‣\-–—*❑❏]|[-])+\s*/;
+  const BULLET_RE = /^[\s]*([•●○◦▪▫■□◆◇►▶▸▹➢➤➔→⇒✓✔✗✘❖⦿⁃∙·‣\-–—*❑❏]|[\uF000-\uF8FF])+\s*/;
   const ENUM_RE = /^\s*(\(?\d{1,2}[.)]|\(?[a-zA-Z][.)])\s+/;
 
   // Legature tipografiche (fi, fl, ffi…) anche quando il PDF le scrive con codici di controllo (LaTeX)
@@ -159,7 +159,7 @@
     if (/Wingdings|Webdings|Marlett/i.test(f)) table = DINGBAT_MAP.wingdings;
     else if (/ZapfDingbats|Dingbats/i.test(f)) table = DINGBAT_MAP.zapf;
     else if (/Symbol/i.test(f) && !/OpenSymbol/i.test(f)) table = SYMBOL_FONT_MAP;
-    if (!table) return { str, unknown: /[-�]/.test(str) };
+    if (!table) return { str, unknown: /[\uE000-\uF8FF\uFFFD]/.test(str) };
     let unknown = false;
     const out = [...str].map((ch) => {
       let c = ch.charCodeAt(0);
@@ -197,7 +197,7 @@
   }
 
   // Pallino o numero d'elenco isolato (da tenere attaccato al testo che segue)
-  const MARKER_ONLY_RE = /^\s*([•●○◦▪▫■□◆◇►▶▸▹➢➤➔→⇒✓✔✗✘❖⦿⁃∙·‣\-–—*]|[-]|\(?\d{1,2}[.)]|\(?[a-zA-Z][.)])\s*$/;
+  const MARKER_ONLY_RE = /^\s*([•●○◦▪▫■□◆◇►▶▸▹➢➤➔→⇒✓✔✗✘❖⦿⁃∙·‣\-–—*]|[\uF000-\uF8FF]|\(?\d{1,2}[.)]|\(?[a-zA-Z][.)])\s*$/;
 
   // Accenti disegnati separatamente sopra la lettera (vecchi PDF fatti con LaTeX)
   const DIACRITICS = { "´": "́", "`": "̀", "¨": "̈", "ˆ": "̂", "˜": "̃", "¯": "̄", "˙": "̇", "˘": "̆", "ˇ": "̌", "¸": "̧", "˚": "̊", "˝": "̋" };
