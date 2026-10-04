@@ -164,6 +164,9 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px; }
 .notes li.l1 { margin-left: 18px; list-style: circle; }
 .notes li.l2 { margin-left: 36px; list-style: square; }
 .notes li.tbl { list-style: none; margin-left: -20px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+.notes li.fli { list-style: none; margin-left: -20px; }
+.notes img.formula { display: block; max-width: 100%; height: auto; background: #fff; border-radius: 4px; padding: 2px 4px; margin: 4px 0; }
+.notes sup, .notes sub { font-size: 0.72em; line-height: 0; }
 .notes .empty-note { color: var(--muted); font-style: italic; margin: 4px 0; }
 .speaker { margin-top: 8px; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; font-size: 14px; }
 .speaker b { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: block; }

@@ -17,6 +17,10 @@ App che funziona sul tuo computer e non serve installarla. Carichi le slide e ot
 - Riportano **solo il testo che c'è nelle slide**, nello stesso ordine: titolo, punti, sottopunti, tabelle.
   Nei PowerPoint ci sono anche le **note del relatore**.
 - Rispetta l'impaginazione: le slide a **due colonne** si leggono una colonna per volta, le **tabelle** diventano righe con le celle separate da «|», le frasi che vanno a capo restano intere e i pedici restano al loro posto (CO2).
+- **Simboli e formule**: lettere greche (α, β, ψ…), simboli matematici (≤, ≈, ∞, ∇…), apici e pedici (E = mc², CO₂, 10⁻³⁴) vengono riportati correttamente.
+  Le formule "a più piani" (frazioni, integrali, sommatorie, radici) vengono inserite negli appunti come **ritaglio della slide**: identiche all'originale, mai spezzate o con simboli sbagliati.
+  Le formule scritte con l'editor di equazioni di PowerPoint o LibreOffice diventano testo in riga, per esempio x = (−b ± √(b²−4ac))/2a.
+- Le frasi che vanno a capo vengono riunite: ogni punto dell'elenco è una frase intera.
 - L'app non inventa e non riassume nulla. Toglie solo i numeri di pagina e le intestazioni o i piè di pagina che si ripetono su tutte le slide.
 - **Slide fatte di immagini** (scansioni, foto, testo dentro un'immagine): l'app legge il testo dall'immagine, tutto sul computer e senza internet.
   Questi appunti hanno l'etichetta gialla **"letto dall'immagine"**. Sulle immagini difficili (foto storte, luce non uniforme, sfondi scuri, bassa risoluzione) l'app fa una seconda lettura più accurata e tiene la migliore.
@@ -45,6 +49,7 @@ La traduzione avviene **tutta sul computer**: niente internet, niente servizi o 
 - **Traduttore**: scrivi o incolla un testo e la traduzione appare mentre scrivi. Il tasto ⇄ inverte le lingue.
 - Puoi anche **selezionare del testo** negli appunti e cliccare **Traduci**.
 - La prima volta che traduci servono alcuni secondi per preparare il traduttore; dopo è immediato.
+- Formule e simboli non vengono toccati dal traduttore: restano esattamente come sulla slide.
 - È una traduzione automatica, quindi può contenere qualche imprecisione. Il testo originale delle slide non viene mai modificato: per tornarci scegli *Lingua originale*.
 
 ## Esportare

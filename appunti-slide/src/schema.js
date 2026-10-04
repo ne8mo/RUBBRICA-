@@ -332,8 +332,9 @@
 
     /* ---------- bozza dagli appunti (solo parole già presenti) ---------- */
     function treeFromSlide(s) {
-      const items = (s.items || []).filter((i) => !i.table).concat((s.imgItems || []));
-      const rootText = s.title || (items.length ? items[0].text : "");
+      const items = (s.items || []).filter((i) => !i.table && !i.img).concat((s.imgItems || []).filter((i) => !i.img))
+        .map((i) => ({ ...i, text: plain(i.text) }));
+      const rootText = plain(s.title) || (items.length ? items[0].text : "");
       if (!rootText) return null;
       const root = { text: rootText, kids: [], depth: 0 };
       const stack = [root];

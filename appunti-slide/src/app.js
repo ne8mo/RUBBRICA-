@@ -79,14 +79,21 @@
   /* Pulizia del testo                                                  */
   /* ------------------------------------------------------------------ */
   // Caratteri usati come pallini negli elenchi (anche quelli dei font Symbol/Wingdings).
-  const BULLET_RE = /^[\s]*([•●○◦▪▫■□◆◇►▶▸▹➢➤➔→⇒✓✔✗✘❖⦿⁃∙·‣\-–—*]|[-])+\s*/;
+  const BULLET_RE = /^[\s]*([•●○◦▪▫■□◆◇►▶▸▹➢➤➔→⇒✓✔✗✘❖⦿⁃∙·‣\-–—*❑❏]|[-])+\s*/;
   const ENUM_RE = /^\s*(\(?\d{1,2}[.)]|\(?[a-zA-Z][.)])\s+/;
 
+  // Legature tipografiche (fi, fl, ffi…) anche quando il PDF le scrive con codici di controllo (LaTeX)
+  const LIGATURES = {
+    "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "st", "ﬆ": "st",
+    "\u001B": "ff", "\u001C": "fi", "\u001D": "fl", "\u001E": "ffi", "\u001F": "ffl",
+    "\u000B": "ff", "\u000C": "fi", "\u000E": "ffi", "\u000F": "ffl",
+  };
   function clean(s) {
     return (s || "")
-      .normalize("NFKC")
+      .replace(/[ﬀ-ﬆ\u000B\u000C\u000E\u000F\u001B-\u001F]/g, (c) => LIGATURES[c])
+      .normalize("NFC") // NFC e non NFKC: così apici (²), pedici (₂) e simboli matematici restano intatti
       .replace(/[­​-‍﻿]/g, "")
-      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+      .replace(/[\u0000-\u0008\u000D\u0010-\u001A]/g, "")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -98,6 +105,75 @@
   // Righe da scartare perché non sono contenuto: numeri di pagina, ecc.
   function isPageNumber(s) {
     return /^(pag\.?|pagina|page|p\.|slide|diapositiva)?\s*\d{1,4}(\s*(\/|di|of)\s*\d{1,4})?$/i.test(s.trim());
+  }
+
+  /* ---------- Apici, pedici e formule scritte in linea ---------- */
+  // Nel testo gli apici e i pedici che non hanno un carattere Unicode sono scritti ^{…} e _{…}
+  const SUP_MAP = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "−": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", n: "ⁿ", i: "ⁱ", "*": "*", "′": "′", "'": "′" };
+  const SUB_MAP = { 0: "₀", 1: "₁", 2: "₂", 3: "₃", 4: "₄", 5: "₅", 6: "₆", 7: "₇", 8: "₈", 9: "₉", "+": "₊", "-": "₋", "−": "₋", "=": "₌", "(": "₍", ")": "₎" };
+  function supText(s, sub) {
+    s = (s || "").trim();
+    if (!s) return "";
+    const map = sub ? SUB_MAP : SUP_MAP;
+    if ([...s].every((c) => map[c])) return [...s].map((c) => map[c]).join("");
+    return (sub ? "_{" : "^{") + s.replace(/[{}]/g, "") + "}";
+  }
+  const MARKUP_RE = /([\^_])\{([^{}]*)\}/g;
+  // Versione in testo semplice (per copiare, cercare, tradurre, esportare in .txt)
+  function plain(s) {
+    return String(s || "").replace(MARKUP_RE, (_, k, v) => (k === "^" ? "^" : "_") + (v.length > 1 ? "(" + v + ")" : v));
+  }
+  // Versione HTML per Word
+  function richHtml(s) {
+    return esc(String(s || "")).replace(/([\^_])\{([^{}]*)\}/g, (_, k, v) => (k === "^" ? "<sup>" : "<sub>") + v + (k === "^" ? "</sup>" : "</sub>"));
+  }
+
+  /* ---------- Simboli dei font Symbol e Wingdings ---------- */
+  // Codifica del font Symbol (lettere greche e simboli matematici)
+  const SYMBOL_FONT_MAP = (() => {
+    const m = {};
+    const latin = "ABCDEFGHIKLMNOPQRSTUWXYZabcdefghiklmnopqrstuvwxyz";
+    const greek = "ΑΒΧΔΕΦΓΗΙΚΛΜΝΟΠΘΡΣΤΥΩΞΨΖαβχδεφγηικλμνοπθρστυϖωξψζ";
+    [...latin].forEach((c, i) => { m[c.charCodeAt(0)] = greek[i]; });
+    Object.assign(m, {
+      0x4A: "ϑ", 0x56: "ς", 0x6A: "ϕ", 0x22: "∀", 0x24: "∃", 0x27: "∋", 0x2A: "∗", 0x2D: "−", 0x40: "≅", 0x5C: "∴", 0x5E: "⊥", 0x60: "‾", 0x7E: "∼",
+      0xA1: "ϒ", 0xA2: "′", 0xA3: "≤", 0xA4: "⁄", 0xA5: "∞", 0xA6: "ƒ", 0xA7: "♣", 0xA8: "♦", 0xA9: "♥", 0xAA: "♠", 0xAB: "↔", 0xAC: "←", 0xAD: "↑",
+      0xAE: "→", 0xAF: "↓", 0xB0: "°", 0xB1: "±", 0xB2: "″", 0xB3: "≥", 0xB4: "×", 0xB5: "∝", 0xB6: "∂", 0xB7: "•", 0xB8: "÷", 0xB9: "≠", 0xBA: "≡",
+      0xBB: "≈", 0xBC: "…", 0xC0: "ℵ", 0xC1: "ℑ", 0xC2: "ℜ", 0xC3: "℘", 0xC4: "⊗", 0xC5: "⊕", 0xC6: "∅", 0xC7: "∩", 0xC8: "∪", 0xC9: "⊃", 0xCA: "⊇",
+      0xCB: "⊄", 0xCC: "⊂", 0xCD: "⊆", 0xCE: "∈", 0xCF: "∉", 0xD0: "∠", 0xD1: "∇", 0xD2: "®", 0xD3: "©", 0xD4: "™", 0xD5: "∏", 0xD6: "√", 0xD7: "⋅",
+      0xD8: "¬", 0xD9: "∧", 0xDA: "∨", 0xDB: "⇔", 0xDC: "⇐", 0xDD: "⇑", 0xDE: "⇒", 0xDF: "⇓", 0xE0: "◊", 0xE1: "⟨", 0xE5: "∑", 0xF1: "⟩", 0xF2: "∫",
+    });
+    return m;
+  })();
+  // Wingdings / Dingbats: pallini, frecce e spunte più usati nelle presentazioni
+  const DINGBAT_MAP = {
+    wingdings: { 0x6C: "●", 0x6E: "■", 0x6F: "□", 0x71: "❑", 0x75: "◆", 0x76: "❖", 0x77: "⬥", 0x9F: "•", 0xA7: "▪", 0xA8: "◻", 0xD8: "➢", 0xDF: "←", 0xE0: "→", 0xE7: "←", 0xE8: "➔", 0xF0: "⇨", 0xFB: "✗", 0xFC: "✓", 0xFE: "☑", 0xFD: "☒", 0x46: "☞", 0x4A: "☺", 0x4C: "☹", 0xAB: "★" },
+    zapf: { 0x33: "✓", 0x34: "✔", 0x35: "✕", 0x36: "✖", 0x37: "✗", 0x38: "✘", 0x48: "★", 0x6C: "●", 0x6E: "■", 0x6F: "❏", 0x71: "❑", 0x75: "◆", 0x76: "❖", 0xE0: "➠", 0xD8: "➘", 0xDC: "➜", 0xE8: "➨" },
+  };
+  const MATH_FONT_RE = /CMMI|CMSY|CMEX|CMBSY|CMMIB|MSAM|MSBM|EUFM|EUSM|EUEX|RSFS|STIX|Cambria.?Math|Math|LMMath|XITS|Asana|Euclid|MT.?Extra|OpenSymbol|Symbol/i;
+  const BIGOP_FONT_RE = /CMEX|EUEX|Euclid.?Extra|MT.?Extra|STIXSize|LMMath.*Ext/i;
+  // Converte il testo dei font simbolici; "unknown" = simbolo che non sappiamo leggere
+  function fixFontText(str, font) {
+    const f = font || "";
+    let table = null;
+    if (/Wingdings|Webdings|Marlett/i.test(f)) table = DINGBAT_MAP.wingdings;
+    else if (/ZapfDingbats|Dingbats/i.test(f)) table = DINGBAT_MAP.zapf;
+    else if (/Symbol/i.test(f) && !/OpenSymbol/i.test(f)) table = SYMBOL_FONT_MAP;
+    if (!table) return { str, unknown: /[-�]/.test(str) };
+    let unknown = false;
+    const out = [...str].map((ch) => {
+      let c = ch.charCodeAt(0);
+      if (c >= 0xF020 && c <= 0xF0FF) c -= 0xF000;
+      if (c >= 0x20 && c <= 0xFF) {
+        if (c === 0x20) return " ";
+        if (table[c]) return table[c];
+        if (table === SYMBOL_FONT_MAP && /[0-9()+=,.;:!?\[\]|/<>%&]/.test(String.fromCharCode(c))) return String.fromCharCode(c);
+        unknown = true;
+        return ch;
+      }
+      return ch; // già Unicode corretto
+    }).join("");
+    return { str: out, unknown };
   }
 
   /* ------------------------------------------------------------------ */
@@ -123,18 +199,37 @@
   // Pallino o numero d'elenco isolato (da tenere attaccato al testo che segue)
   const MARKER_ONLY_RE = /^\s*([•●○◦▪▫■□◆◇►▶▸▹➢➤➔→⇒✓✔✗✘❖⦿⁃∙·‣\-–—*]|[-]|\(?\d{1,2}[.)]|\(?[a-zA-Z][.)])\s*$/;
 
+  // Accenti disegnati separatamente sopra la lettera (vecchi PDF fatti con LaTeX)
+  const DIACRITICS = { "´": "́", "`": "̀", "¨": "̈", "ˆ": "̂", "˜": "̃", "¯": "̄", "˙": "̇", "˘": "̆", "ˇ": "̌", "¸": "̧", "˚": "̊", "˝": "̋" };
+  const MATH_CHAR_RE = /[=+\-−±×÷·⋅∗∘<>≤≥≠≈≡∼≅∝∞∂∇∆∑∏∫∮√∀∃∈∉⊂⊃⊆⊇∪∩∧∨¬→←↔⇒⇐⇔↦′″|‖Α-Ωα-ωϑϕϖϵℏℓ℘ℜℑℵ]/;
+
   async function pageLines(page) {
     const tc = await page.getTextContent();
     const [, y0, , y1] = page.view;
     const height = Math.abs(y1 - y0) || 1;
     const yMin = Math.min(y0, y1);
-    // Elementi di testo con posizione e dimensione
+    const fonts = {};
+    const fontOf = (fn) => {
+      if (!(fn in fonts)) { try { const f = page.commonObjs.get(fn); fonts[fn] = (f && f.name) || ""; } catch (e) { fonts[fn] = ""; } }
+      return fonts[fn];
+    };
+    // Elementi di testo con posizione, dimensione e font
     let items = [];
     for (const it of tc.items) {
       if (!it.str || !it.str.trim()) continue;
       const t = it.transform;
       const size = Math.hypot(t[2], t[3]) || it.height || 10;
-      items.push({ str: it.str, x: t[4], y: t[5], w: it.width || 0, size, bot: t[5] - size * 0.2, top: t[5] + size * 0.8 });
+      const font = fontOf(it.fontName);
+      const fx = fixFontText(it.str, font);
+      const visible = fx.str.replace(/\s/g, "");
+      const bigop = BIGOP_FONT_RE.test(font) || /^[∑∏∫∮⋃⋂]$/.test(visible);
+      items.push({
+        str: fx.str, unknown: fx.unknown, x: t[4], y: t[5], w: it.width || 0, size,
+        // i simboli grandi (∑ ∫) scendono sotto la riga: la loro "scatola" è più alta
+        bot: t[5] - size * (bigop ? 1.1 : 0.2), top: t[5] + size * (bigop ? 1.2 : 0.8),
+        math: MATH_FONT_RE.test(font) ? visible.length : [...visible].filter((c) => MATH_CHAR_RE.test(c)).length,
+        bigop,
+      });
     }
     // Via i doppioni (testo disegnato due volte per ombre/grassetto finto)
     const seen = new Set();
@@ -144,6 +239,21 @@
       seen.add(k);
       return true;
     });
+    // Accenti separati: uniscili alla lettera che sta sotto
+    for (const m of items) {
+      const d = DIACRITICS[m.str.trim()];
+      if (!d || m.str.trim().length !== 1) continue;
+      const cx = m.x + m.w / 2;
+      const base = items.find((b) => b !== m && !b.dead && !DIACRITICS[b.str.trim()] && cx >= b.x && cx <= b.x + b.w &&
+        Math.abs(m.y - b.y) <= b.size * 0.6);
+      if (!base) continue;
+      const chars = [...base.str];
+      const idx = Math.max(0, Math.min(chars.length - 1, Math.floor(((cx - base.x) / (base.w || 1)) * chars.length)));
+      chars[idx] = (chars[idx] + d).normalize("NFC");
+      base.str = chars.join("");
+      m.dead = true;
+    }
+    items = items.filter((i) => !i.dead);
     // 1) Righe: elementi che si sovrappongono in verticale (così pedici e apici restano nella riga)
     items.sort((a, b) => (b.top - a.top) || (a.x - b.x));
     const rows = [];
@@ -159,37 +269,114 @@
         if (it.size > row.size) { row.size = it.size; row.top = it.top; row.bot = it.bot; }
       } else rows.push({ items: [it], top: it.top, bot: it.bot, size: it.size });
     }
-    // 2) Segmenti: parti di riga separate da spazi grandi (colonne, celle di tabella)
-    const segs = [];
+    // Apici e pedici: caratteri più piccoli sopra o sotto la linea di base della riga
     for (const r of rows) {
       r.items.sort((a, b) => a.x - b.x);
+      const base = median(r.items.filter((i) => i.size >= r.size * 0.9).map((i) => i.y));
+      for (const it of r.items) {
+        it.kind = "n";
+        if (it.size < r.size * 0.88) {
+          if (it.y > base + r.size * 0.18) it.kind = "sup";
+          else if (it.y < base - r.size * 0.08) it.kind = "sub";
+        }
+      }
+    }
+    // 2) Segmenti: parti di riga separate da spazi grandi (colonne, celle di tabella)
+    let segs = [];
+    for (const r of rows) {
       let cur = null;
       for (const it of r.items) {
         const gap = cur ? it.x - cur.x1 : 0;
         const big = Math.max(cur ? cur.size : 0, it.size);
         // nuovo segmento se lo spazio è grande, o se dopo uno spazio medio comincia un nuovo pallino
-        const split = cur && !MARKER_ONLY_RE.test(cur.text) &&
+        const split = cur && !MARKER_ONLY_RE.test(cur.raw) && it.kind === "n" &&
           (gap > big * 1.0 || (gap > big * 0.5 && MARKER_ONLY_RE.test(it.str)));
         if (!cur || split) {
-          cur = { text: it.str, x0: it.x, x1: it.x + it.w, top: it.top, bot: it.bot, y: it.y, size: it.size };
+          cur = { runs: [], raw: "", items: [], x0: it.x, x1: it.x + it.w, top: it.top, bot: it.bot, y: it.y, size: it.size };
           segs.push(cur);
-          continue;
+        } else {
+          cur.x1 = Math.max(cur.x1, it.x + it.w);
+          cur.x0 = Math.min(cur.x0, it.x);
+          cur.top = Math.max(cur.top, it.top);
+          cur.bot = Math.min(cur.bot, it.bot);
+          if (it.size > cur.size) { cur.size = it.size; cur.y = it.y; }
         }
-        const needSpace = gap > Math.min(cur.size, it.size) * 0.15 && !/\s$/.test(cur.text) && !/^\s/.test(it.str);
-        cur.text += (needSpace ? " " : "") + it.str;
-        cur.x1 = Math.max(cur.x1, it.x + it.w);
-        cur.top = Math.max(cur.top, it.top);
-        cur.bot = Math.min(cur.bot, it.bot);
-        if (it.size > cur.size) { cur.size = it.size; cur.y = it.y; }
+        const needSpace = cur.runs.length > 0 && it.kind === "n" && gap > Math.min(cur.size, it.size) * 0.15 &&
+          !/\s$/.test(cur.raw) && !/^\s/.test(it.str);
+        const piece = (needSpace ? " " : "") + it.str;
+        const last = cur.runs[cur.runs.length - 1];
+        if (last && last.kind === it.kind) last.text += piece; else cur.runs.push({ kind: it.kind, text: piece });
+        cur.raw += piece;
+        cur.items.push(it);
       }
     }
-    segs.forEach((s) => { s.text = clean(s.text); });
+    for (const s of segs) {
+      // un simbolo sconosciuto all'inizio è solo un pallino
+      const f = s.items[0];
+      if (f.unknown && f.str.trim().length === 1 && s.items.length > 1) { f.unknown = false; s.runs[0].text = s.runs[0].text.replace(f.str.trim(), "•"); }
+      s.text = clean(s.runs.map((r) => (r.kind === "n" ? r.text : supText(r.text, r.kind === "sub"))).join(""));
+      const chars = s.items.reduce((a, i) => a + i.str.replace(/\s/g, "").length, 0);
+      const math = s.items.reduce((a, i) => a + i.math, 0);
+      s.mathish = chars > 0 && math / chars >= 0.5;
+      // pezzo corto (es. "2m" sotto una frazione): può far parte di una formula vicina
+      s.mathy = s.mathish || (chars <= 4 && !stripBullet(s.raw).bullet);
+      s.unknown = s.items.some((i) => i.unknown);
+      // formula "a più piani": operatori grandi o elementi impilati (frazioni, limiti, indici doppi)
+      s.complex = s.items.some((i) => i.bigop);
+      const its = s.items;
+      for (let a = 0; a < its.length && !s.complex; a++) {
+        for (let b = a + 1; b < its.length; b++) {
+          const A = its[a], B = its[b];
+          if (B.x >= A.x + A.w) break;
+          const ov = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x);
+          const narrow = Math.min(A.w, B.w);
+          if (narrow > 0 && ov >= narrow * 0.5 && Math.abs(A.y - B.y) >= Math.min(A.size, B.size) * 0.3 && (A.math || B.math || A.kind !== "n" || B.kind !== "n")) { s.complex = true; break; }
+        }
+      }
+      // testo a lettere spaziate ("T e s t o")
+      const toks = s.raw.trim().split(/\s+/);
+      s.spaced = toks.length >= 5 && toks.filter((t) => t.length === 1).length / toks.length >= 0.75;
+    }
+    // Parti della stessa formula finite su righe diverse (frazioni grandi, limiti): uniscile
+    const parent = segs.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < segs.length; i++) {
+      for (let j = i + 1; j < segs.length; j++) {
+        const A = segs[i], B = segs[j];
+        const vov = Math.min(A.top, B.top) - Math.max(A.bot, B.bot);       // sovrapposizione verticale
+        const hov = Math.min(A.x1, B.x1) - Math.max(A.x0, B.x0);           // sovrapposizione orizzontale
+        const minS = Math.min(A.size, B.size), maxS = Math.max(A.size, B.size);
+        const big = A.complex || B.complex;
+        // un integrale o una sommatoria si porta dietro tutta la riga in cui si trova e i suoi limiti
+        if (big && ((vov > 0 && -hov <= maxS * 1.5) || (-vov <= maxS * 1.6 && hov > -maxS * 0.5 && (A.mathy || B.mathy)))) { parent[find(i)] = find(j); continue; }
+        if (!(A.mathish || B.mathish) || !A.mathy || !B.mathy) continue;
+        const stacked = -vov <= minS * 0.45 && hov >= Math.min(A.x1 - A.x0, B.x1 - B.x0) * 0.3; // numeratore/denominatore, limiti
+        const sideBySide = vov > 0 && -hov <= maxS * 2.5;                                       // pezzi sulla stessa riga
+        if (stacked || sideBySide) parent[find(i)] = find(j);
+      }
+    }
+    const groups = new Map();
+    segs.forEach((s, i) => { const k = find(i); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(s); });
+    segs = [];
+    for (const g of groups.values()) {
+      if (g.length === 1) { segs.push(g[0]); continue; }
+      g.sort((a, b) => (b.top - a.top) || (a.x0 - b.x0));
+      const main = g.reduce((a, b) => (b.size > a.size || (b.size === a.size && b.x1 - b.x0 > a.x1 - a.x0) ? b : a));
+      segs.push({
+        ...main, text: g.map((s) => s.text).join(" "), items: g.flatMap((s) => s.items),
+        x0: Math.min(...g.map((s) => s.x0)), x1: Math.max(...g.map((s) => s.x1)),
+        top: Math.max(...g.map((s) => s.top)), bot: Math.min(...g.map((s) => s.bot)),
+        complex: true, unknown: g.some((s) => s.unknown), spaced: false,
+      });
+    }
     // 3) Ordine di lettura: tagli orizzontali e verticali (colonne lette una per volta)
     const ordered = [];
     readingOrder(segs.filter((s) => s.text), ordered);
     return ordered.map((s) => ({
       text: s.text, x: s.x0, x1: s.x1, y: s.y, size: s.size, rel: (s.y - yMin) / height,
       base: s.base, right: s.right, table: !!s.table,
+      complex: !!s.complex, unknown: !!s.unknown, spaced: !!s.spaced,
+      bbox: { x0: s.x0, x1: s.x1, top: s.top, bot: s.bot },
     }));
   }
 
@@ -260,16 +447,17 @@
   function median(arr) {
     if (!arr.length) return 0;
     const a = arr.slice().sort((x, y) => x - y);
-    return a[Math.floor(a.length / 2)];
+    return a[Math.floor((a.length - 1) / 2)];
   }
 
   // Trasforma le righe di una pagina in titolo + punti, senza aggiungere nulla.
-  // Ogni riga: {text, x, x1, y, size, base?, right?, table?, weak?}
+  // Ogni riga: {text, x, x1, y, size, base?, right?, table?, weak?, img?}
   function linesToNotes(lines) {
     if (!lines.length) return { title: "", titleWeak: [], items: [] };
-    const sizes = lines.map((l) => l.size);
+    const textLines = lines.filter((l) => !l.img && !l.table);
+    const sizes = textLines.map((l) => l.size);
     const med = median(sizes);
-    const max = Math.max(...sizes);
+    const max = sizes.length ? Math.max(...sizes) : 0;
     let title = "";
     let titleWeak = [];
     let body = lines;
@@ -278,43 +466,65 @@
       titleWeak = tl.flatMap((l) => l.weak || []);
     };
     // Titolo: le righe col carattere più grande, se è chiaramente più grande del resto
-    if (lines.length === 1) {
-      takeTitle(lines);
-      body = [];
-    } else if (max >= med * 1.15) {
-      const first = lines.findIndex((l) => l.size >= max * 0.95);
+    if (textLines.length === 1 && lines[0] === textLines[0]) {
+      // una sola riga di testo in cima (per esempio sopra una tabella o una formula): è il titolo
+      takeTitle([lines[0]]);
+      body = lines.slice(1);
+    } else if (max && max >= med * 1.15) {
+      const first = lines.findIndex((l) => !l.img && !l.table && l.size >= max * 0.95);
       if (first !== -1 && first <= 2) {
         let end = first;
-        while (end + 1 < lines.length && lines[end + 1].size >= max * 0.95 && end - first < 3) end++;
+        while (end + 1 < lines.length && !lines[end + 1].img && lines[end + 1].size >= max * 0.95 && end - first < 3) end++;
         takeTitle(lines.slice(first, end + 1));
         body = lines.slice(0, first).concat(lines.slice(end + 1));
       }
     }
+    // Elenco puntato? (allora una riga senza pallino continua il punto precedente)
+    const isMarker = (l) => !l.img && !l.table && (stripBullet(l.text).bullet || ENUM_RE.test(l.text));
+    const listMode = body.filter(isMarker).length >= 2;
+    // Distanza tipica tra le righe di uno stesso paragrafo (in "altezze del carattere")
+    const gaps = [];
+    for (let k = 1; k < body.length; k++) {
+      const a = body[k - 1], b = body[k];
+      const g = (a.y - b.y) / a.size;
+      if (g > 0.8 && g < 3 && !a.img && !b.img && !a.table && !b.table && Math.abs(a.size - b.size) <= a.size * 0.12) gaps.push(g);
+    }
+    // la distanza più piccola è quella delle righe che vanno a capo; i punti nuovi di solito sono un po' più distanti
+    gaps.sort((x, y) => x - y);
+    const wrapGap = gaps.length ? Math.max(0.9, gaps[0]) : 1.25;
     // Punti
     const minX = body.length ? Math.min(...body.map((l) => l.x)) : 0;
     const items = [];
     let prev = null;
     for (const l of body) {
-      if (l.table) {
-        items.push({ text: l.text, level: 0, table: true });
+      const indent = l.x - (l.base != null ? l.base : minX);
+      const level = indent > l.size * 1.2 ? (indent > l.size * 3 ? 2 : 1) : 0;
+      if (l.table || l.img) {
+        const it = { text: l.text, level: l.img ? level : 0 };
+        if (l.table) it.table = true;
+        if (l.img) { it.img = l.img; it.imgW = l.imgW; }
+        items.push(it);
         prev = null;
         continue;
       }
       const sb = stripBullet(l.text);
-      const en = ENUM_RE.test(l.text);
-      const marker = sb.bullet || en;
+      const marker = sb.bullet || ENUM_RE.test(l.text);
       const text = sb.text;
-      const indent = l.x - (l.base != null ? l.base : minX);
-      const level = indent > l.size * 1.2 ? (indent > l.size * 3 ? 2 : 1) : 0;
       let continues = false;
-      if (prev && !marker && Math.abs(l.size - prev.size) <= prev.size * 0.12 && l.x >= prev.x - prev.size * 0.5 &&
-          !/[.!?:;]$/.test(prev.item.text)) {
-        const gap = prev.y - l.y;
-        // riga che va a capo: inizia in minuscolo, oppure la riga sopra arriva fino al margine destro
-        const lowerStart = /^[a-zà-ÿ(,]/.test(text) || /[,(\-–/]$/.test(prev.item.text) ||
-          /\b(e|ed|o|di|da|in|con|per|tra|fra|il|lo|la|i|gli|le|un|una|the|and|or|of|to|in|for|with|a|an)$/i.test(prev.item.text);
+      if (prev && !marker && Math.abs(l.size - prev.size) <= prev.size * 0.12 && l.x >= prev.x - prev.size * 0.5) {
+        const g = (prev.y - l.y) / prev.size;
+        const near = g > 0 && g <= wrapGap * 1.12 + 0.03;
+        const p = prev.item.text;
+        const lowerStart = /^[a-zà-ÿ(,;]/.test(text) || /[,(\-–/]$/.test(p) ||
+          /\b(e|ed|o|di|da|in|con|per|tra|fra|il|lo|la|i|gli|le|un|una|che|del|della|dei|the|and|or|of|to|in|for|with|a|an|by|from)$/i.test(p);
         const fullLine = l.right != null && prev.x1 != null && prev.x1 >= l.right - prev.size * 4;
-        continues = gap > 0 && ((lowerStart && gap <= prev.size * 1.9) || (fullLine && gap <= prev.size * 1.5));
+        // In un elenco puntato le righe senza pallino sono il seguito del punto; altrove serve un indizio di "a capo"
+        if (l.para != null && prev.para != null) {
+          // testo letto dall'OCR: il riconoscimento indica già quali righe formano un paragrafo
+          continues = l.para === prev.para;
+        } else {
+          continues = near && (listMode || fullLine || lowerStart) && (listMode || !/[.!?:;]$/.test(p) || lowerStart);
+        }
       }
       if (continues) {
         const p = prev.item.text;
@@ -328,7 +538,7 @@
       const item = { text, level };
       if (l.weak && l.weak.length) item.weak = l.weak.slice();
       items.push(item);
-      prev = { item, size: l.size, y: l.y, x: l.x, x1: l.x1 };
+      prev = { item, size: l.size, y: l.y, x: l.x, x1: l.x1, para: l.para };
     }
     return { title, titleWeak, items };
   }
@@ -492,12 +702,26 @@ onmessage = async (e) => {
       words = words.map((w, k) => (/^[\][|]$/.test(w.text) || (k === 0 && w.text === "l")) && words[k + 1] && /^\p{L}/u.test(words[k + 1].text)
         ? { ...w, text: "I", conf: 40 } : w);
       const conf = words.reduce((a, w) => a + w.conf, 0) / words.length;
-      if (conf < 60) continue;
-      if (!words.some((w) => /[\p{L}\p{N}]{2,}/u.test(w.text) && w.conf >= 60)) continue;
+      if (conf < 60 || !words.some((w) => /[\p{L}\p{N}]{2,}/u.test(w.text) && w.conf >= 60)) {
+        // Riga letta male: se sembra una formula la terremo come immagine ritagliata, altrimenti è rumore
+        const t = clean(l.words.map((w) => w.text).join(" "));
+        if (/[=+\-−×÷/^()<>≤≥∑∫√π∞∂]/.test(t) && l.w >= l.h * 1.5) {
+          out.push({
+            text: t, x: l.left, x1: l.left + l.w, y: imgH - (l.top + l.h), size: l.h, rel: 1 - (l.top + l.h / 2) / imgH,
+            para: l.para, lowconf: true, box: { left: l.left, top: l.top, w: l.w, h: l.h },
+          });
+        }
+        continue;
+      }
       const text = clean(words.map((w) => w.text).join(" "));
       if (!text) continue;
       const last = words[words.length - 1];
+      // riga con pezzi di formula letti male (simboli strani a bassa sicurezza): meglio il ritaglio dell'immagine
+      const odd = words.filter((w) => w.conf < 55 && /[\[\]{}|°^~¢§¥@#<>?]|^[^\p{L}\p{N}]+$/u.test(w.text)).length;
+      const mixed = odd >= 2 || (odd >= 1 && /[=+∫∑√]/.test(text));
       out.push({
+        box: { left: l.left, top: l.top, w: l.w, h: l.h },
+        lowconf: mixed || undefined,
         text: (bullet ? "• " : "") + text,
         x: words[0].left,
         x1: last.left + last.w,
@@ -508,6 +732,12 @@ onmessage = async (e) => {
         // parole lette con poca sicurezza: le evidenziamo perché vanno controllate
         weak: words.filter((w) => w.conf < 50 && /[\p{L}\p{N}]/u.test(w.text)).map((w) => clean(w.text)),
       });
+    }
+    // Le formule devono avere l'altezza di una riga di testo (non macchie o pezzi di foto)
+    const lineH = median(out.filter((l) => !l.lowconf).map((l) => l.size)) || 0;
+    for (let k = out.length - 1; k >= 0; k--) {
+      const l = out[k];
+      if (l.lowconf && (!lineH || l.box.h < lineH * 0.6 || l.box.h > lineH * 5)) out.splice(k, 1);
     }
     // Margine destro di ogni paragrafo (serve a capire quando una riga va a capo)
     const right = {};
@@ -548,12 +778,126 @@ onmessage = async (e) => {
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.drawImage(bmp, 0, 0, c.width, c.height);
     bmp.close && bmp.close();
-    return { png: await canvasToPng(c), w: c.width, h: c.height };
+    return { canvas: c, w: c.width, h: c.height };
+  }
+  // Ritaglio di una zona dell'immagine (per mostrare formule e simboli esattamente come sulla slide)
+  function cropCanvas(canvas, x, y, w, h) {
+    x = Math.max(0, Math.floor(x)); y = Math.max(0, Math.floor(y));
+    w = Math.min(canvas.width - x, Math.ceil(w)); h = Math.min(canvas.height - y, Math.ceil(h));
+    if (w < 4 || h < 4) return null;
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(canvas, x, y, w, h, 0, 0, w, h);
+    return c;
+  }
+  // Zone con "inchiostro" che l'OCR non ha letto come testo (formule, simboli): restituisce i riquadri
+  function uncoveredInk(canvas, boxes) {
+    const f = Math.min(1, 800 / canvas.width);
+    const W = Math.max(1, Math.round(canvas.width * f)), H = Math.max(1, Math.round(canvas.height * f));
+    const t = document.createElement("canvas");
+    t.width = W; t.height = H;
+    const ctx = t.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(canvas, 0, 0, W, H);
+    const px = ctx.getImageData(0, 0, W, H).data;
+    const lum = new Float32Array(W * H);
+    let sum = 0;
+    for (let i = 0; i < W * H; i++) { const v = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]; lum[i] = v; sum += v; }
+    const darkBg = sum / (W * H) < 110;
+    const ink = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) ink[i] = darkBg ? lum[i] > 170 : lum[i] < 110;
+    // via il testo già letto (con un po' di margine)
+    for (const b of boxes) {
+      const x0 = Math.max(0, Math.floor((b.left - 4) * f)), x1 = Math.min(W, Math.ceil((b.left + b.w + 4) * f));
+      const my = Math.max(3, b.h * 0.3);
+      const y0 = Math.max(0, Math.floor((b.top - my) * f)), y1 = Math.min(H, Math.ceil((b.top + b.h + my) * f));
+      for (let y = y0; y < y1; y++) ink.fill(0, y * W + x0, y * W + x1);
+    }
+    // fasce orizzontali con inchiostro, poi blocchi separati da spazi bianchi larghi
+    const rowInk = new Uint16Array(H);
+    for (let y = 0; y < H; y++) { let c = 0; for (let x = 0; x < W; x++) c += ink[y * W + x]; rowInk[y] = c; }
+    const bands = [];
+    let y = 0;
+    while (y < H) {
+      if (rowInk[y] < 2) { y++; continue; }
+      let y2 = y, gap = 0;
+      while (y2 < H && gap <= 3) { if (rowInk[y2] >= 2) gap = 0; else gap++; y2++; }
+      bands.push([y, y2 - gap]);
+      y = y2;
+    }
+    const blocks = [];
+    for (const [ya, yb] of bands) {
+      const col = new Uint16Array(W);
+      for (let yy = ya; yy < yb; yy++) for (let x = 0; x < W; x++) col[x] += ink[yy * W + x];
+      let x = 0;
+      while (x < W) {
+        if (!col[x]) { x++; continue; }
+        let x2 = x, gap = 0;
+        while (x2 < W && gap <= 30) { if (col[x2]) gap = 0; else gap++; x2++; }
+        const xb = x2 - gap;
+        let n = 0;
+        for (let xx = x; xx < xb; xx++) n += col[xx];
+        blocks.push({ x0: x, x1: xb, y0: ya, y1: yb, ink: n });
+        x = x2;
+      }
+    }
+    // unisci i pezzi vicini (numeratore e denominatore, apici)
+    let merged = true;
+    while (merged) {
+      merged = false;
+      outer: for (let i = 0; i < blocks.length; i++) for (let j = i + 1; j < blocks.length; j++) {
+        const a = blocks[i], b = blocks[j];
+        const hov = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), vgap = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1);
+        if (hov > 0 && vgap <= 6) {
+          blocks[i] = { x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), y0: Math.min(a.y0, b.y0), y1: Math.max(a.y1, b.y1), ink: a.ink + b.ink };
+          blocks.splice(j, 1);
+          merged = true;
+          break outer;
+        }
+      }
+    }
+    // solo blocchi con l'aspetto di una scritta: niente bordi, barre colorate, foto o puntini
+    return blocks.filter((b) => {
+      const w = b.x1 - b.x0, h = b.y1 - b.y0, dens = b.ink / Math.max(1, w * h);
+      return h >= 8 && h <= H * 0.3 && w >= 14 && w <= W * 0.95 && dens >= 0.04 && dens <= 0.45 &&
+        b.x0 > 2 && b.y0 > 2 && b.x1 < W - 2 && b.y1 < H - 2 && b.ink >= 40;
+    }).map((b) => ({ left: b.x0 / f, top: b.y0 / f, w: (b.x1 - b.x0) / f, h: (b.y1 - b.y0) / f }));
+  }
+
+  // OCR di un'immagine già disegnata: le righe illeggibili (formule) diventano ritagli dell'immagine
+  async function recognizeCanvas(canvas, displayW) {
+    const lines = await OCR.recognize(await canvasToPng(canvas), canvas.height);
+    const k = (displayW || 720) / canvas.width;
+    // formule che l'OCR non ha proprio visto: aggiungile come ritagli, al loro posto
+    try {
+      const good = lines.filter((l) => !l.lowconf && l.box).map((l) => l.box);
+      const lineH = median(lines.filter((l) => !l.lowconf).map((l) => l.size)) || 20;
+      for (const b of uncoveredInk(canvas, good)) {
+        if (b.h < lineH * 0.7) continue;
+        if (lines.some((l) => l.lowconf && l.box && Math.min(l.box.left + l.box.w, b.left + b.w) - Math.max(l.box.left, b.left) > 0 &&
+          Math.min(l.box.top + l.box.h, b.top + b.h) - Math.max(l.box.top, b.top) > 0)) {
+          // si sovrappone a una riga già da ritagliare: allarga quella
+          const l = lines.find((l) => l.lowconf && l.box && Math.min(l.box.left + l.box.w, b.left + b.w) - Math.max(l.box.left, b.left) > 0 &&
+            Math.min(l.box.top + l.box.h, b.top + b.h) - Math.max(l.box.top, b.top) > 0);
+          const x0 = Math.min(l.box.left, b.left), y0 = Math.min(l.box.top, b.top);
+          l.box = { left: x0, top: y0, w: Math.max(l.box.left + l.box.w, b.left + b.w) - x0, h: Math.max(l.box.top + l.box.h, b.top + b.h) - y0 };
+          continue;
+        }
+        lines.push({ text: "", ink: true, x: b.left, x1: b.left + b.w, y: canvas.height - (b.top + b.h), size: Math.min(b.h, lineH * 1.5), rel: 1 - (b.top + b.h / 2) / canvas.height, lowconf: true, box: b });
+      }
+      lines.sort((a, b) => (b.y + b.size) - (a.y + a.size) || a.x - b.x);
+    } catch (e) { console.warn(e); }
+    for (const l of lines) {
+      if (!l.lowconf) continue;
+      const pad = l.ink ? 6 : Math.max(4, l.box.h * 0.25);
+      const c = cropCanvas(canvas, l.box.left - pad, l.box.top - pad, l.box.w + pad * 2, l.box.h + pad * 2);
+      if (c) { l.img = c.toDataURL("image/png"); l.imgW = Math.round(c.width * k); }
+    }
+    return lines.filter((l) => !l.lowconf || l.img);
   }
   async function ocrBlob(blob) {
     try {
       const img = await imageForOcr(blob);
-      return await OCR.recognize(img.png, img.h);
+      return await recognizeCanvas(img.canvas);
     } catch (e) {
       console.warn("OCR non riuscito", e);
       return null;
@@ -565,9 +909,40 @@ onmessage = async (e) => {
   // Testo "vero" o testo illeggibile (font senza mappatura dei caratteri)?
   function realTextLength(lines) {
     const all = lines.map((l) => l.text).join("");
-    const good = (all.match(/[\p{L}\p{N}]/gu) || []).length;
-    const bad = (all.match(/[\uFFFD\uE000-\uF8FF]/g) || []).length;
-    return bad > good ? 0 : good;
+    const letters = (all.match(/[\p{L}\p{N}]/gu) || []).length;
+    // caratteri di alfabeti che in slide italiane/inglesi indicano un font "rotto"
+    const bad = (all.match(/[\uFFFD\uE000-\uF8FF\u0400-\u04FF\u0590-\u08FF\u0E00-\u0FFF\u1100-\u11FF\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]/g) || []).length;
+    return bad > letters * 0.25 ? 0 : letters;
+  }
+  // Righe con formule a più piani o simboli sconosciuti: ritagliate come immagine dalla pagina.
+  // Righe a lettere spaziate ("T e s t o"): rilette con l'OCR.
+  async function repairLines(page, lines, vp1) {
+    const need = lines.filter((l) => l.bbox && (l.complex || l.unknown || l.spaced));
+    if (!need.length) return;
+    const scale = Math.min(3, 2400 / vp1.width);
+    const v = page.getViewport({ scale });
+    const c = document.createElement("canvas");
+    c.width = Math.ceil(v.width); c.height = Math.ceil(v.height);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: v }).promise;
+    for (const l of need) {
+      const padX = l.size * 0.3, padY = l.size * 0.12;
+      const [ax, ay, bx, by] = v.convertToViewportRectangle([l.bbox.x0 - padX, l.bbox.bot - padY, l.bbox.x1 + padX, l.bbox.top + padY]);
+      const crop = cropCanvas(c, Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
+      if (!crop) continue;
+      if (l.spaced && !l.complex && !l.unknown) {
+        try {
+          const res = await OCR.recognize(await canvasToPng(crop), crop.height);
+          const t = clean(res.filter((x) => !x.lowconf).map((x) => stripBullet(x.text).text).join(" "));
+          if (t.replace(/\s/g, "").length >= l.text.replace(/\s/g, "").length * 0.7) l.text = (stripBullet(l.text).bullet ? "• " : "") + t;
+        } catch (e) { /* resta il testo originale */ }
+        continue;
+      }
+      l.img = crop.toDataURL("image/png");
+      l.imgW = Math.round(crop.width / scale * (720 / vp1.width));
+      l.text = plain(l.text);
+    }
   }
 
   async function readPdf(file, bytes, onPage) {
@@ -577,14 +952,16 @@ onmessage = async (e) => {
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
       const vp = page.getViewport({ scale: 1 });
+      let ol = null;
+      try { ol = await page.getOperatorList(); } catch (e) { /* ignora */ } // carica anche i font (servono per i simboli)
       const lines = await pageLines(page);
       const p = { lines, ratio: vp.width / vp.height, imgs: [], mode: null, ocr: null };
       if (realTextLength(lines) < 20) {
-        p.mode = "full"; // nessun testo leggibile: è una scansione o un'immagine
+        p.mode = "full"; // nessun testo leggibile: è una scansione, un'immagine o un font illeggibile
       } else {
+        try { await repairLines(page, lines, vp); } catch (e) { console.warn(e); }
         // Immagini grandi nella pagina (potrebbero contenere testo)
-        try {
-          const ol = await page.getOperatorList();
+        if (ol) try {
           for (let k = 0; k < ol.fnArray.length; k++) {
             const fn = ol.fnArray[k], a = ol.argsArray[k];
             let w = 0, h = 0;
@@ -622,10 +999,9 @@ onmessage = async (e) => {
       ctx.fillRect(0, 0, c.width, c.height);
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
       page.cleanup();
-      const png = await canvasToPng(c);
       while (inflight >= 3) await new Promise((r) => freed.push(r)); // non accumulare troppe immagini in memoria
       inflight++;
-      jobs.push(OCR.recognize(png, c.height)
+      jobs.push(recognizeCanvas(c)
         .then((lines) => { p.ocr = lines; })
         .catch((e) => { console.warn(e); p.ocrFailed = true; })
         .finally(() => {
@@ -647,13 +1023,14 @@ onmessage = async (e) => {
       const med = median(p.lines.map((l) => l.size));
       p.lines.forEach((l) => { l.edge = (l.rel > 0.9 || l.rel < 0.1) && l.size <= med * 1.05; });
     });
-    if (pages.length >= 4) {
+    if (pages.length >= 3) {
       const counts = new Map();
       for (const p of pages) {
         const keys = new Set(p.lines.filter((l) => l.edge).map(keyOf));
         keys.forEach((k) => counts.set(k, (counts.get(k) || 0) + 1));
       }
-      counts.forEach((c, k) => { if (c >= Math.max(3, pages.length * 0.4)) repeated.add(k); });
+      const need = pages.length < 5 ? pages.length : Math.max(3, pages.length * 0.4);
+      counts.forEach((c, k) => { if (c >= need) repeated.add(k); });
     }
     const keep = (l) => {
       if (isPageNumber(stripBullet(l.text).text) && (l.rel > 0.85 || l.rel < 0.15)) return false;
@@ -672,6 +1049,84 @@ onmessage = async (e) => {
       };
     });
   }
+
+  /* ---------- Formule dell'editor di equazioni (PowerPoint: OMML, LibreOffice: MathML) ---------- */
+  // Parentesi solo se servono (cioè se c'è un'operazione "allo scoperto")
+  const wrapP = (x) => {
+    x = x.trim();
+    let flat = x, prev;
+    do { prev = flat; flat = flat.replace(/\([^()]*\)|\{[^{}]*\}/g, ""); } while (flat !== prev);
+    return /[+\-−±=\s/×·]/.test(flat) ? "(" + x + ")" : x;
+  };
+  function ommlText(n) {
+    const kids = (e) => (e ? Array.from(e.children) : []);
+    const get = (e, name) => kids(e).find((c) => c.localName === name);
+    const val = (e) => (e ? e.getAttribute("m:val") || e.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/math", "val") : null);
+    const inner = (e) => kids(e).map(ommlText).join("");
+    switch (n.localName) {
+      case "t": return n.textContent;
+      case "r": return kids(n).filter((c) => c.localName === "t").map((c) => c.textContent).join("");
+      case "f": return wrapP(inner(get(n, "num"))) + "/" + wrapP(inner(get(n, "den")));
+      case "sSup": return inner(get(n, "e")) + supText(inner(get(n, "sup")));
+      case "sSub": return inner(get(n, "e")) + supText(inner(get(n, "sub")), true);
+      case "sSubSup": return inner(get(n, "e")) + supText(inner(get(n, "sub")), true) + supText(inner(get(n, "sup")));
+      case "sPre": return supText(inner(get(n, "sub")), true) + supText(inner(get(n, "sup"))) + inner(get(n, "e"));
+      case "rad": {
+        const deg = inner(get(n, "deg"));
+        return (deg ? supText(deg) : "") + "√" + wrapP(inner(get(n, "e")));
+      }
+      case "nary": {
+        const pr = get(n, "naryPr");
+        const op = val(pr && get(pr, "chr")) || "∫";
+        return op + supText(inner(get(n, "sub")), true) + supText(inner(get(n, "sup"))) + " " + inner(get(n, "e"));
+      }
+      case "d": {
+        const pr = get(n, "dPr");
+        const beg = val(pr && get(pr, "begChr")), end = val(pr && get(pr, "endChr")), sep = val(pr && get(pr, "sepChr"));
+        const es = kids(n).filter((c) => c.localName === "e").map(ommlText);
+        return (beg != null ? beg : "(") + es.join(sep != null ? sep : ", ") + (end != null ? end : ")");
+      }
+      case "func": return inner(get(n, "fName")) + " " + inner(get(n, "e"));
+      case "limLow": return inner(get(n, "e")) + supText(inner(get(n, "lim")), true);
+      case "limUpp": return inner(get(n, "e")) + supText(inner(get(n, "lim")));
+      case "acc": {
+        const pr = get(n, "accPr");
+        const chr = val(pr && get(pr, "chr")) || "̂";
+        return inner(get(n, "e")) + (/[̀-ͯ]/.test(chr) ? chr : "");
+      }
+      case "bar": return inner(get(n, "e")) + "̅";
+      case "eqArr": return kids(n).filter((c) => c.localName === "e").map(ommlText).join("; ");
+      case "m": if (!/math$/.test(n.namespaceURI || "")) return inner(n); // a14:m = contenitore della formula
+        return "[" + kids(n).filter((c) => c.localName === "mr").map((r) => kids(r).filter((c) => c.localName === "e").map(ommlText).join(" ")).join("; ") + "]";
+      case "rPr": case "fPr": case "naryPr": case "dPr": case "radPr": case "sSupPr": case "sSubPr": case "sSubSupPr":
+      case "funcPr": case "accPr": case "barPr": case "ctrlPr": case "oMathParaPr": case "limLowPr": case "limUppPr": case "eqArrPr": case "mPr": case "sPrePr":
+        return "";
+      default: return inner(n);
+    }
+  }
+  function mathmlText(n) {
+    const kids = Array.from(n.children);
+    const t = (i) => (kids[i] ? mathmlText(kids[i]) : "");
+    switch (n.localName) {
+      case "mi": case "mn": case "mtext": case "ms": return n.textContent.trim();
+      case "mo": { const o = n.textContent.trim(); return /^[=<>≤≥≈≠→←⇒⇔±+−×÷∈]$/.test(o) ? " " + o + " " : o; }
+      case "mfrac": return wrapP(t(0).trim()) + "/" + wrapP(t(1).trim());
+      case "msup": return t(0) + supText(t(1).trim());
+      case "msub": return t(0) + supText(t(1).trim(), true);
+      case "msubsup": return t(0) + supText(t(1).trim(), true) + supText(t(2).trim());
+      case "munder": return t(0) + supText(t(1).trim(), true);
+      case "mover": return t(0) + supText(t(1).trim());
+      case "munderover": return t(0) + supText(t(1).trim(), true) + supText(t(2).trim()) + " ";
+      case "msqrt": return "√" + wrapP(kids.map(mathmlText).join("").trim());
+      case "mroot": return supText(t(1).trim()) + "√" + wrapP(t(0).trim());
+      case "mfenced": return (n.getAttribute("open") ?? "(") + kids.map(mathmlText).join(n.getAttribute("separators") || ", ") + (n.getAttribute("close") ?? ")");
+      case "semantics": return t(0);
+      case "annotation": case "annotation-xml": return "";
+      default: return kids.map(mathmlText).join("");
+    }
+  }
+  const tidyMath = (s) => clean(s.replace(/\s*([=<>≤≥≈≠→±])\s*/g, " $1 ").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")"))
+    .replace(/([\^_]\{)([^{}]*)\}/g, (m, a, b) => a + b.replace(/\s+/g, "") + "}");
 
   /* ------------------------------------------------------------------ */
   /* Lettura PowerPoint (.pptx)                                          */
@@ -715,6 +1170,8 @@ onmessage = async (e) => {
         else if (c.localName === "br") s += " ";
         else if (c.localName === "tab") s += " ";
         else if (c.localName === "r" || c.localName === "fld" || c.localName === "smartTag") walk(c);
+        else if (c.localName === "m" || c.localName === "oMath" || c.localName === "oMathPara") s += " " + tidyMath(ommlText(c)) + " ";
+        else if (c.localName === "AlternateContent") { const ch = childLocal(c, "Choice")[0] || childLocal(c, "Fallback")[0]; if (ch) walk(ch); }
       }
     };
     walk(p);
@@ -950,6 +1407,7 @@ onmessage = async (e) => {
       const pg = pages[i];
       const blocks = [];
       const pics = [];
+      const objs = [];
       const walk = (node) => {
         for (const c of node.children) {
           if (c.namespaceURI === PRES_NS && c.localName === "notes") continue;
@@ -959,6 +1417,13 @@ onmessage = async (e) => {
           if (["page-number", "date-time", "footer", "header"].includes(cls)) continue;
           const y = toCm(c.getAttributeNS(SVG_NS, "y")), x = toCm(c.getAttributeNS(SVG_NS, "x"));
           const w = toCm(c.getAttributeNS(SVG_NS, "width")) || 0, h = toCm(c.getAttributeNS(SVG_NS, "height")) || 0;
+          // formule dell'editor di LibreOffice (oggetti incorporati)
+          Array.from(c.getElementsByTagNameNS(DRAW_NS, "object")).forEach((o) => {
+            const href = o.getAttributeNS(XLINK_NS, "href");
+            const inline = o.getElementsByTagNameNS("*", "math")[0];
+            if (inline || href) objs.push({ href, inline, x, y });
+          });
+          if (c.getElementsByTagNameNS(DRAW_NS, "object").length) continue;
           Array.from(c.getElementsByTagNameNS(DRAW_NS, "image")).forEach((im) => {
             const href = im.getAttributeNS(XLINK_NS, "href");
             if (href && !/^https?:/.test(href)) pics.push({ path: href.replace(/^\.\//, ""), area: w * h });
@@ -968,6 +1433,15 @@ onmessage = async (e) => {
         }
       };
       walk(pg);
+      for (const o of objs) {
+        let m = o.inline;
+        if (!m && o.href) {
+          const d = await readXml(zip, o.href.replace(/^\.\//, "").replace(/\/$/, "") + "/content.xml");
+          m = d && d.getElementsByTagNameNS("*", "math")[0];
+        }
+        const t = m ? tidyMath(mathmlText(m)) : "";
+        if (t) blocks.push({ cls: "formula", x: o.x, y: o.y, paras: [{ text: t, level: 0 }] });
+      }
       const titles = blocks.filter((b) => b.cls === "title");
       let others = blocks.filter((b) => b.cls !== "title");
       if (others.every((b) => b.y != null)) others = others.slice().sort((a, b) => (Math.abs(a.y - b.y) > 0.5 ? a.y - b.y : a.x - b.x));
@@ -1236,7 +1710,7 @@ onmessage = async (e) => {
     const blob = new Blob([bytes], { type: file.type || MIME[extOf(file.name)] || "" });
     const img = await imageForOcr(blob); // fallisce se il browser non sa aprire l'immagine
     const ratio = img.w / img.h;
-    const lines = await OCR.recognize(img.png, img.h);
+    const lines = await recognizeCanvas(img.canvas);
     const n = linesToNotes(lines.filter((l) => !(isPageNumber(stripBullet(l.text).text) && (l.rel > 0.85 || l.rel < 0.15))));
     return { title: n.title, titleWeak: n.titleWeak, items: n.items, imgItems: [], speaker: [], ratio, ocr: true };
   }
@@ -1254,7 +1728,7 @@ onmessage = async (e) => {
     return it > en ? "it" : "en";
   }
   function slideText(s) {
-    return [s.title, ...s.items.map((i) => i.text), ...(s.imgItems || []).map((i) => i.text), ...s.speaker].join("\n");
+    return [plain(s.title), ...s.items.map((i) => plain(i.text)), ...(s.imgItems || []).map((i) => plain(i.text)), ...s.speaker].join("\n");
   }
 
   /* ------------------------------------------------------------------ */
@@ -1347,6 +1821,56 @@ onmessage = async (e) => {
     // Prepara in anticipo il traduttore (per esempio quando si apre il pannello)
     function prepare(from, to) { if (from !== to) model(from + to).catch(warn); }
 
+    // Le formule e i simboli non devono passare dal traduttore (li rovinerebbe):
+    // vengono sostituiti da numeri-segnaposto, che il traduttore lascia intatti, e poi rimessi al loro posto.
+    const SAFE_RE = /^[\p{Script=Latin}\p{Nd}\s.,;:!?'"’‘“”«»()\[\]\-–—%&@#€$*]+$/u;
+    const VAR_RE = /^\(?\p{L}\d*[,.;:)\]]*$|^\(?[\d.,]+[)\],.;:]*$/u;   // variabile di una lettera (x, x1) o numero
+    const OP_RE = /[=+\-−<>≤≥≠≈×·⋅÷^_/∈∉⊂⊆→←⇒⇔±∓∝∼≡]/;
+    function protect(text) {
+      const toks = text.split(/(\s+)/);
+      const words = [];
+      toks.forEach((t, i) => { if (t.trim()) words.push(i); });
+      const isMath = new Set(words.filter((i) => !SAFE_RE.test(toks[i])));
+      // variabili e numeri accanto a una formula fanno parte della formula
+      let grew = true;
+      while (grew) {
+        grew = false;
+        words.forEach((i, k) => {
+          if (isMath.has(i)) return;
+          const p = k > 0 ? words[k - 1] : null, n = k < words.length - 1 ? words[k + 1] : null;
+          // una variabile o un numero entra nella formula se è vicino a un operatore (=, +, ≤ …)
+          const nearOp = (p != null && isMath.has(p) && OP_RE.test(toks[p])) || (n != null && isMath.has(n) && OP_RE.test(toks[n]));
+          // la parentesi che chiude una formula aperta prima, es. "ψ(x, t)"
+          const closes = /^[^()]*\)/.test(toks[i]) && toks[i].length <= 4 && p != null && isMath.has(p) && /\([^)]*$/.test(toks[p]);
+          if ((VAR_RE.test(toks[i]) && nearOp) || closes) { isMath.add(i); grew = true; }
+        });
+      }
+      if (!isMath.size) return { masked: text, spans: [] };
+      const spans = [];
+      let out = "", k = 0;
+      while (k < words.length) {
+        const i = words[k];
+        if (!isMath.has(i)) { out += (out ? " " : "") + toks[i]; k++; continue; }
+        let j = k;
+        while (j + 1 < words.length && isMath.has(words[j + 1])) j++;
+        const span = toks.slice(words[k], words[j] + 1).join("");
+        let code;
+        do { code = String(7301 + spans.length * 7 + Math.floor(Math.random() * 3)); } while (text.includes(code));
+        spans.push({ code, span });
+        out += (out ? " " : "") + code;
+        k = j + 1;
+      }
+      return { masked: out, spans };
+    }
+    function restore(tr, spans) {
+      let ok = true;
+      for (const { code, span } of spans) {
+        if (tr.split(code).length !== 2) { ok = false; break; }
+        tr = tr.replace(code, () => span);
+      }
+      return ok ? tr : null;
+    }
+
     // Traduce un elenco di righe mantenendo la corrispondenza 1:1
     async function lines(arr, from, to) {
       const result = new Array(arr.length);
@@ -1359,8 +1883,22 @@ onmessage = async (e) => {
       if (!todo.length) return result;
       const pair = from + to;
       await model(pair);
-      const r = await call({ type: "translate", pair, texts: todo.map((i) => arr[i]) });
-      todo.forEach((i, j) => { result[i] = r.out[j]; cache.set(from + to + "|" + arr[i], r.out[j]); });
+      const prot = todo.map((i) => protect(arr[i]));
+      const r = await call({ type: "translate", pair, texts: prot.map((p) => p.masked) });
+      for (let j = 0; j < todo.length; j++) {
+        const i = todo[j], p = prot[j];
+        let t = p.spans.length ? restore(r.out[j], p.spans) : r.out[j];
+        if (t == null) {
+          // il traduttore ha spostato i segnaposto: traduci a pezzi il testo tra una formula e l'altra
+          const parts = p.masked.split(new RegExp("(" + p.spans.map((x) => x.code).join("|") + ")"));
+          const prose = parts.filter((x, k) => k % 2 === 0 && x.trim());
+          const rr = prose.length ? (await call({ type: "translate", pair, texts: prose })).out : [];
+          let q = 0;
+          t = parts.map((x, k) => (k % 2 ? p.spans.find((sp) => sp.code === x).span : x.trim() ? rr[q++] : x)).join(" ").replace(/\s+/g, " ").trim();
+        }
+        result[i] = t;
+        cache.set(from + to + "|" + arr[i], t);
+      }
       persist();
       return result;
     }
@@ -1485,18 +2023,38 @@ onmessage = async (e) => {
   }
 
   // Testo con le parole incerte (lette male dall'immagine) evidenziate
+  // Testo con apici/pedici (^{…} _{…}) e parole incerte (lette male dall'immagine) evidenziate
   function withWeak(tag, cls, text, weak) {
     const e = el(tag, cls);
-    if (!weak || !weak.length) { e.textContent = text; return e; }
-    const set = new Set(weak);
-    text.split(/(\s+)/).forEach((tok) => {
-      if (tok && set.has(tok)) {
-        const m = el("span", "unsure", tok);
-        m.title = "Parola letta dall'immagine con poca sicurezza: controllala sulla slide";
-        e.append(m);
-      } else e.append(document.createTextNode(tok));
+    const set = new Set(weak || []);
+    const addPlain = (str) => {
+      if (!set.size) { e.append(document.createTextNode(str)); return; }
+      str.split(/(\s+)/).forEach((tok) => {
+        if (tok && set.has(tok)) {
+          const m = el("span", "unsure", tok);
+          m.title = "Parola letta dall'immagine con poca sicurezza: controllala sulla slide";
+          e.append(m);
+        } else if (tok) e.append(document.createTextNode(tok));
+      });
+    };
+    let last = 0;
+    String(text || "").replace(MARKUP_RE, (m, k, v, off) => {
+      addPlain(text.slice(last, off));
+      e.append(el(k === "^" ? "sup" : "sub", null, v));
+      last = off + m.length;
+      return m;
     });
+    addPlain(String(text || "").slice(last));
     return e;
+  }
+  // Formula o simbolo mostrati come ritaglio della slide
+  function formulaImg(it) {
+    const im = el("img", "formula");
+    im.src = it.img;
+    im.alt = plain(it.text) || "formula";
+    im.title = "Ritaglio dalla slide (formula o simboli)";
+    if (it.imgW) im.style.width = it.imgW + "px";
+    return im;
   }
 
   function renderContent(s, r, tr) {
@@ -1508,8 +2066,10 @@ onmessage = async (e) => {
     if (d.items.length) {
       const ul = el("ul");
       d.items.forEach((it, i) => {
-        const cls = (s.items[i].table ? "tbl " : "") + (s.items[i].level ? "l" + s.items[i].level : "");
-        ul.append(withWeak("li", cls, it.text, tr ? null : s.items[i].weak));
+        const src = s.items[i];
+        const cls = (src.table ? "tbl " : "") + (src.level ? "l" + src.level : "") + (src.img ? " fli" : "");
+        if (src.img) { const li = el("li", cls); li.append(formulaImg(src)); ul.append(li); return; }
+        ul.append(withWeak("li", cls, it.text, tr ? null : src.weak));
       });
       c.append(ul);
     }
@@ -1518,7 +2078,11 @@ onmessage = async (e) => {
       const box = el("div", "imgtext");
       box.append(el("b", null, "Testo nelle immagini della slide"));
       const ul = el("ul");
-      img.forEach((it, i) => ul.append(withWeak("li", s.imgItems[i].level ? "l" + s.imgItems[i].level : "", it.text, tr ? null : s.imgItems[i].weak)));
+      img.forEach((it, i) => {
+        const src = s.imgItems[i];
+        if (src.img) { const li = el("li", "fli"); li.append(formulaImg(src)); ul.append(li); return; }
+        ul.append(withWeak("li", src.level ? "l" + src.level : "", it.text, tr ? null : src.weak));
+      });
       box.append(ul);
       c.append(box);
     }
@@ -1538,17 +2102,21 @@ onmessage = async (e) => {
 
   /* ---------------- Correzione a mano degli appunti ---------------- */
   const IMG_MARK = "[Testo nelle immagini]";
+  // Le formule (ritagli della slide) compaiono come [formula 1], [formula 2]… e restano al loro posto
+  function slideFormulas(s) { return s.items.concat(s.imgItems || []).filter((i) => i.img); }
   function notesToEditText(s) {
     const out = [];
+    const fs = slideFormulas(s);
+    const txt = (it) => (it.img ? "[formula " + (fs.indexOf(it) + 1) + "]" : it.text);
     if (s.title) out.push(s.title);
-    s.items.forEach((it) => out.push(it.table ? it.text : "  ".repeat(it.level || 0) + "- " + it.text));
+    s.items.forEach((it) => out.push(it.table ? it.text : "  ".repeat(it.level || 0) + "- " + txt(it)));
     if ((s.imgItems || []).length) {
       out.push("", IMG_MARK);
-      s.imgItems.forEach((it) => out.push("  ".repeat(it.level || 0) + "- " + it.text));
+      s.imgItems.forEach((it) => out.push("  ".repeat(it.level || 0) + "- " + txt(it)));
     }
     return out.join("\n");
   }
-  function parseEditText(txt, hadTitle) {
+  function parseEditText(txt, hadTitle, formulas) {
     const res = { title: "", items: [], imgItems: [] };
     let target = res.items;
     let first = true;
@@ -1561,6 +2129,8 @@ onmessage = async (e) => {
       const text = clean(m ? m[2] : raw);
       if (!text) continue;
       const level = m ? Math.min(2, Math.floor(m[1].replace(/\t/g, "  ").length / 2)) : 0;
+      const fm = /^\[formula (\d+)\]$/i.exec(text);
+      if (fm && formulas && formulas[+fm[1] - 1]) { target.push({ ...formulas[+fm[1] - 1], level }); continue; }
       target.push(/ \| /.test(text) && !m ? { text, level: 0, table: true } : { text, level });
     }
     return res;
@@ -1584,7 +2154,7 @@ onmessage = async (e) => {
     const close = () => { r.editing = false; r.shownLang = null; r.trData = null; renderContent(s, r, null); if (state.lang !== "orig") syncLang(s); };
     cancel.onclick = close;
     save.onclick = () => {
-      const res = parseEditText(ta.value, !!s.title || !s.items.length);
+      const res = parseEditText(ta.value, !!s.title || !s.items.length, slideFormulas(s));
       s.title = res.title;
       s.items = res.items;
       s.imgItems = res.imgItems;
@@ -1600,11 +2170,12 @@ onmessage = async (e) => {
   function rowPlainText(s) {
     const r = rowsById.get(s.id);
     const tr = r && r.trData && r.shownLang === state.lang ? r.trData : s;
-    const out = ["Slide " + s.n + (tr.title ? " — " + tr.title : "")];
-    tr.items.forEach((it, i) => out.push("  ".repeat(s.items[i].level) + (s.items[i].table ? "" : "• ") + it.text));
+    const line = (src, it) => (src.img ? "[formula: vedi la slide " + s.n + "]" : plain(it.text));
+    const out = ["Slide " + s.n + (tr.title ? " — " + plain(tr.title) : "")];
+    tr.items.forEach((it, i) => out.push("  ".repeat(s.items[i].level || 0) + (s.items[i].table ? "" : "• ") + line(s.items[i], it)));
     if ((tr.imgItems || []).length) {
       out.push("Testo nelle immagini:");
-      tr.imgItems.forEach((it) => out.push("  • " + it.text));
+      tr.imgItems.forEach((it, i) => out.push("  • " + line(s.imgItems[i], it)));
     }
     if (tr.speaker.length) out.push("Note del relatore: " + tr.speaker.join(" "));
     if (s.user && s.user.trim()) out.push("Mie annotazioni: " + s.user.trim());
@@ -1615,7 +2186,9 @@ onmessage = async (e) => {
     const from = s.lang && s.lang !== "unknown" ? s.lang : (lang === "it" ? "en" : "it");
     if (from === lang) return null;
     const img = s.imgItems || [];
-    const arr = [s.title, ...s.items.map((i) => i.text), ...img.map((i) => i.text), ...s.speaker];
+    // le formule (ritagli) non si traducono; apici e pedici vanno al traduttore in forma semplice
+    const tx = (i) => (i.img ? "" : plain(i.text));
+    const arr = [plain(s.title), ...s.items.map(tx), ...img.map(tx), ...s.speaker];
     const tr = await Translate.lines(arr, from, lang);
     const a = 1 + s.items.length, b = a + img.length;
     return {
@@ -1980,13 +2553,14 @@ onmessage = async (e) => {
         const r = rowsById.get(s.id);
         const d = r && r.trData && r.shownLang === state.lang ? r.trData : s;
         const f = state.files.find((x) => x.id === s.fileId);
-        h += `<h2>Slide ${s.n}${d.title ? " — " + esc(d.title) : ""}</h2><p class="s">${esc(f ? f.name : "")} · ${s.index}</p>`;
+        h += `<h2>Slide ${s.n}${d.title ? " — " + richHtml(d.title) : ""}</h2><p class="s">${esc(f ? f.name : "")} · ${s.index}</p>`;
+        const cell = (src, it) => (src.img ? `<img src="${src.img}" width="${Math.round((src.imgW || 300) * 0.75)}" alt="formula">` : richHtml(it.text));
         if (d.items.length) {
           h += "<ul>";
-          d.items.forEach((it, i) => { h += `<li style="margin-left:${s.items[i].level * 18}pt">${esc(it.text)}</li>`; });
+          d.items.forEach((it, i) => { h += `<li style="margin-left:${(s.items[i].level || 0) * 18}pt">${cell(s.items[i], it)}</li>`; });
           h += "</ul>";
         }
-        if ((d.imgItems || []).length) h += `<p class="s">Testo nelle immagini:</p><ul>${d.imgItems.map((it) => `<li>${esc(it.text)}</li>`).join("")}</ul>`;
+        if ((d.imgItems || []).length) h += `<p class="s">Testo nelle immagini:</p><ul>${d.imgItems.map((it, i) => `<li>${cell(s.imgItems[i], it)}</li>`).join("")}</ul>`;
         if (d.speaker.length) h += `<p class="n"><b>Note del relatore:</b> ${esc(d.speaker.join(" "))}</p>`;
         if (s.user && s.user.trim()) h += `<p class="m"><b>Mie annotazioni:</b> ${esc(s.user.trim()).replace(/\n/g, "<br>")}</p>`;
       }
