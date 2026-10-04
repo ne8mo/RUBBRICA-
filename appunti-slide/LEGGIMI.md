@@ -26,6 +26,18 @@ App che funziona sul tuo computer e non serve installarla. Carichi le slide e ot
 - Le scritte a mano e le immagini molto piccole o confuse possono non essere lette. Le foto senza scritte vengono ignorate.
 - Keynote (.key): esporta prima la presentazione in PDF o PowerPoint.
 
+## Schemi (mappe con forme e frecce)
+Clicca **Schemi** in alto: accanto agli appunti si apre un foglio dove costruire il tuo schema.
+- **Forme**: rettangolo, quadrato, triangolo, cerchio/ovale, rombo e solo testo. Clicca una forma per aggiungerla; scegli il colore dai pallini.
+- **Diramazioni**: seleziona una forma e premi il **+** blu (o il tasto **Tab**) per farne partire un ramo. Trascinando il **+** su un'altra forma le colleghi. Con **Collega** unisci due forme qualsiasi; cliccando una freccia puoi trasformarla in linea o tratteggio.
+- **Scrivere**: doppio clic su una forma (o tasto Invio). La forma si allarga da sola per contenere il testo.
+- **Parole dagli appunti**: seleziona delle parole negli appunti e **trascinale** nel foglio, oppure usa **＋ Schema** nel menu che compare, oppure il **+** che appare accanto a ogni riga degli appunti. Se le lasci cadere su una forma vuota la riempiono; su una forma piena creano un nuovo ramo.
+- **Testo non ancora elaborato**: con **Testo libero** si apre un riquadro dove scrivere o incollare qualsiasi testo, oppure **importarlo da un file** (PDF, PowerPoint, foto, .txt) senza trasformarlo in appunti. Seleziona le parole e trascinale, o premi *Aggiungi selezione* (una forma per riga).
+- **Bozza dagli appunti**: crea in un attimo uno schema con il titolo della slide al centro e i suoi punti come rami (c'è anche il pulsante *Schema* su ogni slide). Usa solo le parole degli appunti; poi modifichi tutto come vuoi.
+- Sposta le forme trascinandole, ridimensionale dal quadratino in basso a destra, elimina con **Canc**. **Annulla/Ripeti** con Ctrl+Z / Ctrl+Y. Trascina il foglio per spostarti, Ctrl + rotella per lo zoom, **Adatta** per vedere tutto.
+- Puoi avere **più schemi** (Nuovo, rinomina ✎, elimina 🗑): si salvano da soli.
+- **Immagine** salva lo schema come PNG; **Stampa / PDF** lo stampa o lo salva in PDF.
+
 ## Traduzione italiano ⇄ inglese
 - **Appunti in** (in alto): scegli *Italiano* o *English* e tutti gli appunti vengono mostrati tradotti.
   Le slide che sono già in quella lingua restano come sono.

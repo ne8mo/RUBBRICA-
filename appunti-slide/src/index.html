@@ -23,6 +23,7 @@
         <option value="en">English</option>
       </select>
     </label>
+    <button id="btnSchema" class="btn">Schemi</button>
     <button id="btnTranslator" class="btn">Traduttore</button>
     <div class="menu">
       <button id="btnExport" class="btn" disabled>Esporta appunti ▾</button>
@@ -86,7 +87,77 @@
   <p class="muted small">Suggerimento: seleziona del testo negli appunti per tradurlo al volo.</p>
 </aside>
 
-<div id="selPop" class="sel-pop" hidden><button id="selBtn">Traduci</button><div id="selOut"></div></div>
+<div id="selPop" class="sel-pop" hidden><button id="selBtn">Traduci</button><button id="selSchema">＋ Schema</button><div id="selOut"></div></div>
+
+<button id="addLine" class="add-line" hidden title="Aggiungi questa riga allo schema" aria-label="Aggiungi allo schema">＋</button>
+
+<aside id="schema" class="schema-panel" hidden aria-label="Schema">
+  <div class="sc-head">
+    <select id="scList" aria-label="Schema aperto"></select>
+    <button id="scNew" class="sc-tool wide" title="Nuovo schema">＋ Nuovo</button>
+    <button id="scRename" class="sc-tool" title="Rinomina lo schema" aria-label="Rinomina lo schema">✎</button>
+    <button id="scDel" class="sc-tool" title="Elimina lo schema" aria-label="Elimina lo schema">🗑</button>
+    <span class="sc-spacer"></span>
+    <button id="scDraft" class="btn small" title="Crea una bozza con titolo e punti delle slide">Bozza dagli appunti</button>
+    <button id="scTextToggle" class="btn small" title="Testo da usare nello schema, senza trasformarlo in appunti">Testo libero</button>
+    <button id="scPng" class="btn small" title="Salva lo schema come immagine PNG">Immagine</button>
+    <button id="scPrint" class="btn small" title="Stampa o salva in PDF">Stampa / PDF</button>
+    <button id="scClose" class="icon-btn" aria-label="Chiudi lo schema">✕</button>
+  </div>
+  <div class="sc-tools">
+    <span id="scShapesLabel" class="sc-label">Aggiungi:</span>
+    <div id="scShapes" class="sc-group"></div>
+    <span class="sc-sep"></span>
+    <div id="scColors" class="sc-group"></div>
+    <span class="sc-sep"></span>
+    <button id="scLink" class="sc-tool wide" title="Collega la forma selezionata a un'altra">Collega</button>
+    <select id="scEdgeStyle" class="sc-select" hidden aria-label="Tipo di collegamento">
+      <option value="arrow">Freccia</option><option value="line">Linea</option><option value="dashed">Tratteggio</option>
+    </select>
+    <button id="scBold" class="sc-tool" title="Grassetto" aria-label="Grassetto"><b>G</b></button>
+    <button id="scDelete" class="sc-tool" title="Elimina (tasto Canc)" aria-label="Elimina">🗑</button>
+    <span class="sc-sep"></span>
+    <button id="scUndo" class="sc-tool" title="Annulla (Ctrl+Z)" aria-label="Annulla">↶</button>
+    <button id="scRedo" class="sc-tool" title="Ripeti (Ctrl+Y)" aria-label="Ripeti">↷</button>
+  </div>
+  <div class="sc-body">
+    <div id="scSource" class="sc-source" hidden>
+      <b>Testo libero</b>
+      <p class="muted small">Scrivi o incolla un testo, oppure importalo da un file. Seleziona delle parole e trascinale nel foglio, o premi «Aggiungi selezione» (una forma per riga).</p>
+      <textarea id="scText" placeholder="Incolla qui il testo…"></textarea>
+      <div class="sc-src-bar">
+        <button id="scAddSel" class="btn small primary">Aggiungi selezione</button>
+        <button id="scImport" class="btn small">Importa da file</button>
+        <input id="scFile" type="file" hidden multiple accept=".txt,.md,.pdf,.pptx,.ppsx,.ppt,.pps,.odp,.jpg,.jpeg,.png,.gif,.bmp,.webp,image/*">
+      </div>
+    </div>
+    <div id="scWrap" class="sc-wrap">
+      <svg id="scSvg" tabindex="0" aria-label="Foglio dello schema"></svg>
+      <textarea id="scEditor" class="sc-editor" hidden></textarea>
+      <div class="sc-zoom">
+        <button id="scZoomOut" class="sc-tool" title="Rimpicciolisci (Ctrl + rotella)" aria-label="Rimpicciolisci">−</button>
+        <button id="scZoomIn" class="sc-tool" title="Ingrandisci (Ctrl + rotella)" aria-label="Ingrandisci">+</button>
+        <button id="scFit" class="sc-tool wide" title="Mostra tutto lo schema">Adatta</button>
+      </div>
+      <div id="scEmpty" class="sc-empty">
+        <p><b>Foglio vuoto.</b> Per iniziare:</p>
+        <p>• scegli una forma in alto (quadrato, triangolo, cerchio…)<br>• oppure trascina qui parole selezionate dagli appunti<br>• oppure usa «Bozza dagli appunti» o «Testo libero»</p>
+      </div>
+    </div>
+  </div>
+  <div id="scStatus" class="sc-status"></div>
+</aside>
+
+<div id="draftDlg" class="dlg-back" hidden>
+  <div class="dlg" role="dialog" aria-label="Bozza dagli appunti">
+    <h3>Bozza dagli appunti</h3>
+    <p class="muted small">Il titolo di ogni slide diventa la forma principale e i suoi punti diventano i rami. Si usano solo le parole presenti negli appunti; poi puoi modificare tutto.</p>
+    <div class="dlg-row">Dalla slide <input id="dFrom" type="number" min="1" value="1"> alla slide <input id="dTo" type="number" min="1" value="1"> <span class="muted small">(su <span id="dCount"></span>)</span></div>
+    <div class="dlg-bar"><button id="dCancel" class="btn">Annulla</button><button id="dOk" class="btn primary">Crea bozza</button></div>
+  </div>
+</div>
+
+<div id="printSchema" class="print-schema"></div>
 
 <div id="viewer" class="viewer" hidden>
   <div class="viewer-bar">

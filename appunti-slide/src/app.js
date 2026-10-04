@@ -22,13 +22,15 @@
       if (dbp) return dbp;
       dbp = new Promise((res, rej) => {
         let req;
-        try { req = indexedDB.open("appunti-slide", 1); } catch (e) { rej(e); return; }
+        try { req = indexedDB.open("appunti-slide", 2); } catch (e) { rej(e); return; }
         req.onupgradeneeded = () => {
           const db = req.result;
-          db.createObjectStore("files", { keyPath: "id" });
-          db.createObjectStore("bytes");
-          db.createObjectStore("slides", { keyPath: "id" });
-          db.createObjectStore("kv");
+          const has = (n) => db.objectStoreNames.contains(n);
+          if (!has("files")) db.createObjectStore("files", { keyPath: "id" });
+          if (!has("bytes")) db.createObjectStore("bytes");
+          if (!has("slides")) db.createObjectStore("slides", { keyPath: "id" });
+          if (!has("kv")) db.createObjectStore("kv");
+          if (!has("schemas")) db.createObjectStore("schemas", { keyPath: "id" });
         };
         req.onsuccess = () => res(req.result);
         req.onerror = () => rej(req.error);
@@ -1474,7 +1476,10 @@ onmessage = async (e) => {
     const fix = el("button", "mini", "Correggi");
     fix.title = "Correggi a mano gli appunti di questa slide";
     fix.onclick = () => editSlide(s);
-    head.append(trTag, fix, copy);
+    const sch = el("button", "mini", "Schema");
+    sch.title = "Crea una bozza di schema con gli appunti di questa slide";
+    sch.onclick = () => Schema.draftFromSlides([s]);
+    head.append(trTag, fix, sch, copy);
     const content = el("div", "content");
     const ta = el("textarea", "mynote");
     ta.placeholder = "Le tue annotazioni su questa slide…";
@@ -2068,6 +2073,10 @@ onmessage = async (e) => {
       try { $("#selOut").textContent = await Translate.text(selText, from, to); }
       catch (e) { $("#selOut").textContent = "Traduzione non disponibile"; }
     });
+    $("#selSchema").addEventListener("click", () => {
+      pop.hidden = true;
+      Schema.addTexts(selText.split(/\n+/));
+    });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") pop.hidden = true; });
   }
 
@@ -2134,9 +2143,11 @@ onmessage = async (e) => {
     setTrLabels();
   }
 
+/*__SCHEMA__*/
   /* ---------------- Avvio ---------------- */
   async function start() {
     wire();
+    try { await Schema.init(); } catch (e) { warn(e); }
     try {
       const [files, slides, lang] = await Promise.all([DB.all("files"), DB.all("slides"), DB.get("kv", "lang")]);
       state.files = files.map(({ id, name, kind, order }) => ({ id, name, kind, order }));
