@@ -566,7 +566,7 @@ onmessage = async (e) => {
   function realTextLength(lines) {
     const all = lines.map((l) => l.text).join("");
     const good = (all.match(/[\p{L}\p{N}]/gu) || []).length;
-    const bad = (all.match(/[�-]/g) || []).length;
+    const bad = (all.match(/[\uFFFD\uE000-\uF8FF]/g) || []).length;
     return bad > good ? 0 : good;
   }
 
