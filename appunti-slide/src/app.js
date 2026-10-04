@@ -68,6 +68,7 @@
     files: [],        // {id, name, kind, order}
     slides: [],       // vedi makeSlide
     lang: "orig",
+    showOrig: false,
     view: "both",
     query: "",
   };
@@ -521,7 +522,8 @@
         // In un elenco puntato le righe senza pallino sono il seguito del punto; altrove serve un indizio di "a capo"
         if (l.para != null && prev.para != null) {
           // testo letto dall'OCR: il riconoscimento indica già quali righe formano un paragrafo
-          continues = l.para === prev.para;
+          // …ma una riga che inizia con la maiuscola è quasi sempre un punto nuovo (pallino non letto)
+          continues = l.para === prev.para && near && (lowerStart || (fullLine && !/^[A-ZÀ-Ý]/.test(text)));
         } else {
           continues = near && (listMode || fullLine || lowerStart) && (listMode || !/[.!?:;]$/.test(p) || lowerStart);
         }
@@ -623,11 +625,29 @@ onmessage = async (e) => {
         const langs = {};
         for (const l of ["ita", "eng"]) langs[l] = await gunzip(b64ToBytes(document.getElementById("tess-" + l).textContent.trim()));
         const n = Math.max(1, Math.min(2, (navigator.hardwareConcurrency || 2) - 1));
-        await Promise.all(Array.from({ length: n }, () => new Promise((res, rej) => {
-          const w = new Worker(url);
+        // se il browser vieta i worker, il motore OCR gira nella pagina stessa (più lento ma funziona)
+        const makeWorker = () => {
+          if (!window.__forceMtPage) { try { return new Worker(url); } catch (e) { /* passa alla pagina */ } }
+          return null;
+        };
+        const pageWorker = () => {
+          const fake = { onmessage: null, onerror: null, postMessage(m) { setTimeout(() => window.__ocrSend(m)); }, terminate() {} };
+          window.__ocrRecv = (m) => fake.onmessage && fake.onmessage({ data: m });
+          if (!window.__ocrSend) {
+            const sc = document.createElement("script");
+            sc.textContent = "(function(){var postMessage=function(m){window.__ocrRecv(m)};var onmessage;\n" + core.textContent + WORKER_SRC +
+              "\n;window.__ocrSend=function(m){onmessage({data:m})};})();";
+            document.head.append(sc);
+          }
+          if (!window.__ocrSend) throw new Error("Il browser non permette di avviare la lettura delle immagini");
+          return fake;
+        };
+        const startOne = (w) => new Promise((res, rej) => {
+          const t = setTimeout(() => rej(new Error("avvio troppo lento")), 60000);
           const copy = {};
           for (const k in langs) copy[k] = langs[k].slice(0);
           w.onmessage = (e) => {
+            clearTimeout(t);
             const m = e.data;
             if (m.type === "ready" && m.st === 0) {
               const slot = { w, job: null };
@@ -637,9 +657,19 @@ onmessage = async (e) => {
               res();
             } else rej(new Error(m.msg || "Avvio OCR non riuscito"));
           };
-          w.onerror = (e) => rej(new Error(e.message || "Avvio OCR non riuscito"));
+          w.onerror = (e) => { clearTimeout(t); rej(new Error(e.message || "Avvio OCR non riuscito")); };
           w.postMessage({ type: "init", langs: copy }, Object.values(copy));
-        })));
+        });
+        try {
+          const ws = Array.from({ length: n }, makeWorker);
+          if (ws.some((w) => !w)) throw new Error("worker non disponibile");
+          await Promise.all(ws.map(startOne));
+        } catch (e) {
+          console.warn("OCR nel worker non disponibile, uso la pagina:", e);
+          slots.forEach((sl) => { try { sl.w.terminate(); } catch (x) { /* niente */ } });
+          slots.length = 0;
+          await startOne(pageWorker());
+        }
         pump();
       })();
       ready.catch(() => { ready = null; });
@@ -694,7 +724,9 @@ onmessage = async (e) => {
       // Il pallino iniziale viene spesso letto come un simbolo strano: lo trattiamo come pallino
       let bullet = false;
       const f = words[0];
-      if (words.length > 1 && (!/[\p{L}\p{N}]/u.test(f.text) || (f.text.length === 1 && f.h < medH * 0.6))) {
+      const looksBullet = !/[\p{L}\p{N}]/u.test(f.text) || (f.text.length === 1 && f.h < medH * 0.6) ||
+        (f.text.length === 1 && /^[eoaci»«•·]$/.test(f.text) && words[1] && /^[A-ZÀ-Ý]/.test(words[1].text));
+      if (words.length > 1 && looksBullet) {
         bullet = true;
         words = words.slice(1);
       }
@@ -1719,12 +1751,29 @@ onmessage = async (e) => {
   /* ------------------------------------------------------------------ */
   const IT_WORDS = new Set("il lo la i gli le di da del della dei delle che è e non per con una un sono come più anche nel nella alla al si questo questa ma tra fra se dove quando essere ha hanno può sulla sul degli allo agli".split(" "));
   const EN_WORDS = new Set("the of and to in is are that for with as on by this be it an from or not at which can was were have has will their its these into than more also such each other".split(" "));
+  const IT_WORDS2 = new Set("sui sugli nei negli alle ai dalla dallo dagli dalle col cui ci ne lui lei loro noi voi era erano stato stata fa fanno molto poco tutto tutti ogni altro altri quale quali perché però già ancora sempre solo avere viene vengono sia uno ad ed od dove cioè quindi infatti mentre dunque oppure".split(" "));
+  const EN_WORDS2 = new Set("you he she we they his her our your what where who how why been being would should could may might must does did do no yes there here then so if all any some most only very about after before between through during without within when while because however therefore".split(" "));
+  // Riconosce la lingua (italiano o inglese) da parole comuni, finali tipici delle parole e vocali finali
   function detectLang(text) {
-    const words = (text.toLowerCase().match(/[a-zàèéìòù']+/g) || []);
-    let it = 0, en = 0;
-    for (const w of words) { if (IT_WORDS.has(w)) it++; if (EN_WORDS.has(w)) en++; }
+    const words = (String(text || "").toLowerCase().match(/[a-zàèéìòùáíóú']+/g) || []);
+    let it = 0, en = 0, long = 0, vowelEnd = 0;
+    for (const w of words) {
+      if (IT_WORDS.has(w) || IT_WORDS2.has(w)) it += 2;
+      if (EN_WORDS.has(w) || EN_WORDS2.has(w)) en += 2;
+      if (w.length >= 4) {
+        long++;
+        if (/[aeiouàèéìòù]$/.test(w)) vowelEnd++;
+        if (/(zione|zioni|mente|ità|ismo|aggio|ato|ata|ati|ate|ito|ita|uto|uta|oso|osa|ella|ello|etto|etta|ione|enza|anza|ico|ica|ici|iche)$/.test(w)) it++;
+        if (/(tion|tions|ing|ed|ly|ness|ment|ments|ful|less|ship|ous|ive|able|ible|th|ck|ght|ies)$/.test(w)) en++;
+        if (/[kwy]/.test(w) && !/[àèéìòù]/.test(w)) en += 0.5;
+      }
+    }
     if (/[àèéìòù]/.test(text)) it += 1;
-    if (it === en) return "unknown";
+    if (long >= 3) {
+      const r = vowelEnd / long;
+      if (r >= 0.75) it += 2; else if (r <= 0.45) en += 2;
+    }
+    if (Math.abs(it - en) < 1) return "unknown";
     return it > en ? "it" : "en";
   }
   function slideText(s) {
@@ -1760,8 +1809,13 @@ onmessage = async (e) => {
     async function data(id) {
       const elx = document.getElementById(id);
       let buf;
-      if (elx) buf = await (await fetch("data:application/octet-stream;base64," + elx.textContent.trim())).arrayBuffer();
-      else {
+      if (elx) {
+        // decodifica diretta (senza fetch: alcune pagine web la vietano)
+        const bin = atob(elx.textContent.trim());
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        buf = u8.buffer;
+      } else {
         const r = await fetch("traduzione/" + id + ".bin.wasm"); // versione di anteprima: dati in file separati
         if (!r.ok) throw new Error("Dati di traduzione mancanti");
         buf = await r.arrayBuffer();
@@ -1777,28 +1831,57 @@ onmessage = async (e) => {
         worker.postMessage({ ...msg, id }, transfer || []);
       });
     }
+    // Se il browser non permette il "worker" separato, il traduttore gira nella pagina stessa
+    function mainThreadWorker(code) {
+      const fake = { onmessage: null, onerror: null, postMessage(m) { setTimeout(() => window.__mtSend(m)); } };
+      window.__mtRecv = (m) => fake.onmessage && fake.onmessage({ data: m });
+      const sc = document.createElement("script");
+      sc.textContent = "(function(){var postMessage=function(m){window.__mtRecv(m)};var onmessage;\n" + code +
+        "\n;window.__mtSend=function(m){onmessage({data:m})};})();";
+      document.head.append(sc);
+      if (!window.__mtSend) throw new Error("Il browser non permette di avviare il traduttore");
+      return fake;
+    }
+    let mode = "";
+    function boot(w) {
+      return new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error("avvio troppo lento")), 45000);
+        w.onmessage = (e) => {
+          const m = e.data;
+          if (m.type === "ready") { clearTimeout(t); res(); }
+          else if (m.type === "error" && m.id == null) { clearTimeout(t); rej(new Error(m.msg)); }
+          else {
+            const x = waiting.get(m.id);
+            if (!x) return;
+            waiting.delete(m.id);
+            if (m.type === "error") x.rej(new Error(m.msg)); else x.res(m);
+          }
+        };
+        w.onerror = (e) => { clearTimeout(t); rej(new Error(e.message || "Traduttore non avviato")); };
+      });
+    }
     function start() {
       if (ready) return ready;
       ready = (async () => {
+        if (typeof DecompressionStream === "undefined") throw new Error("browser troppo vecchio: aggiorna Chrome, Edge, Firefox o Safari");
         const code = document.getElementById("mt-worker").textContent;
-        worker = new Worker(URL.createObjectURL(new Blob([code], { type: "text/javascript" })));
-        const boot = new Promise((res, rej) => {
-          worker.onmessage = (e) => {
-            const m = e.data;
-            if (m.type === "ready") res();
-            else if (m.type === "error" && m.id == null) rej(new Error(m.msg));
-            else {
-              const w = waiting.get(m.id);
-              if (!w) return;
-              waiting.delete(m.id);
-              if (m.type === "error") w.rej(new Error(m.msg)); else w.res(m);
-            }
-          };
-          worker.onerror = (e) => rej(new Error(e.message || "Traduttore non avviato"));
-        });
         const wasm = await data("mt-wasm");
-        worker.postMessage({ type: "wasm", bin: wasm }, [wasm]);
-        await boot;
+        try {
+          if (window.__forceMtPage) throw new Error("prova");
+          worker = new Worker(URL.createObjectURL(new Blob([code], { type: "text/javascript" })));
+          const b = boot(worker);
+          worker.postMessage({ type: "wasm", bin: wasm.slice(0) });
+          await b;
+          mode = "worker";
+        } catch (e) {
+          console.warn("Traduttore nel worker non disponibile, uso la pagina:", e);
+          try { worker && worker.terminate && worker.terminate(); } catch (x) { /* niente */ }
+          worker = mainThreadWorker(code);
+          const b = boot(worker);
+          worker.postMessage({ type: "wasm", bin: wasm });
+          await b;
+          mode = "page";
+        }
       })();
       ready.catch(() => { ready = null; });
       return ready;
@@ -1826,7 +1909,36 @@ onmessage = async (e) => {
     const SAFE_RE = /^[\p{Script=Latin}\p{Nd}\s.,;:!?'"’‘“”«»()\[\]\-–—%&@#€$*]+$/u;
     const VAR_RE = /^\(?\p{L}\d*[,.;:)\]]*$|^\(?[\d.,]+[)\],.;:]*$/u;   // variabile di una lettera (x, x1) o numero
     const OP_RE = /[=+\-−<>≤≥≠≈×·⋅÷^_/∈∉⊂⊆→←⇒⇔±∓∝∼≡]/;
-    function protect(text) {
+    // Glossario (parole sempre tradotte così) e correzioni fatte a mano
+    let glossary = [];
+    const fixes = new Map();
+    async function loadUser() {
+      glossary = (await DB.get("kv", "glossario")) || [];
+      const f = await DB.get("kv", "trfix");
+      if (f && typeof f === "object") Object.entries(f).forEach(([k, v]) => fixes.set(k, v));
+    }
+    let gen = 0; // cambia quando cambia il glossario: le traduzioni vecchie non vanno più salvate
+    function setGlossary(list) { glossary = list; gen++; DB.put("kv", list, "glossario"); cache.clear(); DB.put("kv", {}, "trcache"); }
+    function setFix(from, to, orig, fixed) {
+      const k = from + to + "|" + orig;
+      if (fixed && fixed.trim()) fixes.set(k, fixed.trim()); else fixes.delete(k);
+      DB.put("kv", Object.fromEntries(fixes), "trfix");
+    }
+    const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    function protect(text, from, to) {
+      const spans = [];
+      const newCode = () => { let c; do { c = String(7301 + spans.length * 7 + Math.floor(Math.random() * 3)); } while (text.includes(c)); return c; };
+      // i termini del glossario vengono sostituiti dalla loro traduzione scelta
+      for (const g of glossary) {
+        const src = (g[from] || "").trim(), dst = (g[to] || "").trim();
+        if (!src || !dst) continue;
+        text = text.replace(new RegExp("(?<![\\p{L}\\p{N}])" + reEsc(src) + "(?![\\p{L}\\p{N}])", "giu"), (m) => {
+          const code = newCode();
+          const cap = m[0] !== m[0].toLowerCase() && dst[0] === dst[0].toLowerCase();
+          spans.push({ code, span: cap ? dst[0].toUpperCase() + dst.slice(1) : dst });
+          return code;
+        });
+      }
       const toks = text.split(/(\s+)/);
       const words = [];
       toks.forEach((t, i) => { if (t.trim()) words.push(i); });
@@ -1845,8 +1957,7 @@ onmessage = async (e) => {
           if ((VAR_RE.test(toks[i]) && nearOp) || closes) { isMath.add(i); grew = true; }
         });
       }
-      if (!isMath.size) return { masked: text, spans: [] };
-      const spans = [];
+      if (!isMath.size) return { masked: text, spans };
       let out = "", k = 0;
       while (k < words.length) {
         const i = words[k];
@@ -1854,8 +1965,7 @@ onmessage = async (e) => {
         let j = k;
         while (j + 1 < words.length && isMath.has(words[j + 1])) j++;
         const span = toks.slice(words[k], words[j] + 1).join("");
-        let code;
-        do { code = String(7301 + spans.length * 7 + Math.floor(Math.random() * 3)); } while (text.includes(code));
+        const code = newCode();
         spans.push({ code, span });
         out += (out ? " " : "") + code;
         k = j + 1;
@@ -1863,12 +1973,12 @@ onmessage = async (e) => {
       return { masked: out, spans };
     }
     function restore(tr, spans) {
-      let ok = true;
-      for (const { code, span } of spans) {
-        if (tr.split(code).length !== 2) { ok = false; break; }
+      // dall'ultimo al primo: una formula può contenere un termine del glossario
+      for (const { code, span } of spans.slice().reverse()) {
+        if (tr.split(code).length !== 2) return null;
         tr = tr.replace(code, () => span);
       }
-      return ok ? tr : null;
+      return tr;
     }
 
     // Traduce un elenco di righe mantenendo la corrispondenza 1:1
@@ -1878,12 +1988,14 @@ onmessage = async (e) => {
       arr.forEach((t, i) => {
         if (!t || !t.trim() || from === to) { result[i] = t; return; }
         const k = from + to + "|" + t;
+        if (fixes.has(k)) { result[i] = fixes.get(k); return; }
         if (cache.has(k)) result[i] = cache.get(k); else todo.push(i);
       });
       if (!todo.length) return result;
       const pair = from + to;
+      const myGen = gen;
       await model(pair);
-      const prot = todo.map((i) => protect(arr[i]));
+      const prot = todo.map((i) => protect(arr[i], from, to));
       const r = await call({ type: "translate", pair, texts: prot.map((p) => p.masked) });
       for (let j = 0; j < todo.length; j++) {
         const i = todo[j], p = prot[j];
@@ -1897,7 +2009,7 @@ onmessage = async (e) => {
           t = parts.map((x, k) => (k % 2 ? p.spans.find((sp) => sp.code === x).span : x.trim() ? rr[q++] : x)).join(" ").replace(/\s+/g, " ").trim();
         }
         result[i] = t;
-        cache.set(from + to + "|" + arr[i], t);
+        if (myGen === gen) cache.set(from + to + "|" + arr[i], t);
       }
       persist();
       return result;
@@ -1905,7 +2017,7 @@ onmessage = async (e) => {
     async function text(t, from, to) {
       return (await lines(t.split("\n"), from, to)).join("\n");
     }
-    return { lines, text, loadCache, prepare };
+    return { lines, text, loadCache, prepare, loadUser, setGlossary, getGlossary: () => glossary, setFix, mode: () => mode };
   })();
 
   /* ------------------------------------------------------------------ */
@@ -1914,9 +2026,16 @@ onmessage = async (e) => {
   const list = $("#list");
   const rowsById = new Map();
 
-  function toast(msg, ms = 3500) {
+  // Messaggio in basso; con "action" compare un pulsante (es. Annulla)
+  function toast(msg, ms = 3500, action) {
     const t = $("#toast");
     t.textContent = msg;
+    if (action) {
+      const b = el("button", "toast-btn", action.label);
+      b.onclick = () => { t.hidden = true; action.fn(); };
+      t.append(b);
+      ms = Math.max(ms, 8000);
+    }
     t.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(() => { t.hidden = true; }, ms);
@@ -2000,7 +2119,10 @@ onmessage = async (e) => {
     const sch = el("button", "mini", "Schema");
     sch.title = "Crea una bozza di schema con gli appunti di questa slide";
     sch.onclick = () => Schema.draftFromSlides([s]);
-    head.append(trTag, fix, sch, copy);
+    const del = el("button", "mini danger-mini", "Elimina");
+    del.title = "Elimina questa slide dagli appunti";
+    del.onclick = () => deleteSlide(s);
+    head.append(trTag, fix, sch, copy, del);
     const content = el("div", "content");
     const ta = el("textarea", "mynote");
     ta.placeholder = "Le tue annotazioni su questa slide…";
@@ -2097,7 +2219,25 @@ onmessage = async (e) => {
       d.speaker.forEach((t) => sp.append(el("div", null, t)));
       c.append(sp);
     }
+    // ✕ per eliminare un punto sbagliato (con possibilità di annullare)
+    const addDel = (li, list, i) => {
+      const b = el("button", "del-item", "✕");
+      b.title = "Elimina questo punto";
+      b.setAttribute("aria-label", "Elimina questo punto");
+      b.onclick = (ev) => { ev.stopPropagation(); deleteItem(s, list, i); };
+      li.append(b);
+    };
+    c.querySelectorAll(":scope > ul > li").forEach((li, i) => addDel(li, "items", i));
+    c.querySelectorAll(".imgtext li").forEach((li, i) => addDel(li, "imgItems", i));
     r.trTag.hidden = !tr;
+    r.trTag.textContent = "tradotto";
+    // sotto la traduzione, in piccolo, il testo originale (per controllare)
+    if (tr && state.showOrig) {
+      const lis = c.querySelectorAll(":scope > ul > li");
+      s.items.forEach((src, i) => { if (!src.img && lis[i] && plain(src.text) !== d.items[i].text) lis[i].append(withWeak("div", "orig", src.text)); });
+      const h = c.querySelector("h3");
+      if (h && s.title && plain(s.title) !== d.title) h.after(withWeak("div", "orig orig-title", s.title));
+    }
   }
 
   /* ---------------- Correzione a mano degli appunti ---------------- */
@@ -2135,9 +2275,90 @@ onmessage = async (e) => {
     }
     return res;
   }
+  /* ---------------- Eliminare punti o slide sbagliati ---------------- */
+  function refreshSlide(s) {
+    const r = rowsById.get(s.id);
+    if (!r) return;
+    r.shownLang = null; r.trData = null;
+    renderContent(s, r, null);
+    if (state.lang !== "orig") syncLang(s);
+  }
+  function deleteItem(s, list, i) {
+    const arr = s[list] || [];
+    const [gone] = arr.splice(i, 1);
+    if (!gone) return;
+    DB.put("slides", s);
+    refreshSlide(s);
+    toast("Punto eliminato", 8000, { label: "Annulla", fn: () => { arr.splice(i, 0, gone); DB.put("slides", s); refreshSlide(s); } });
+  }
+  function deleteSlide(s) {
+    const idx = state.slides.indexOf(s);
+    if (idx < 0) return;
+    state.slides.splice(idx, 1);
+    const r = rowsById.get(s.id);
+    if (r) { io.unobserve(r.row); r.row.remove(); rowsById.delete(s.id); }
+    DB.del("slides", s.id);
+    renumber();
+    refreshChrome();
+    toast("Slide eliminata", 8000, {
+      label: "Annulla",
+      fn: () => { state.slides.splice(idx, 0, s); DB.put("slides", s); renderAll(); },
+    });
+  }
+
+  // Lingua di partenza di una riga (per sapere quale traduzione correggere)
+  function lineLang(s, t) {
+    const l = detectLang(t);
+    if (l !== "unknown") return l;
+    return s.lang && s.lang !== "unknown" ? s.lang : (state.lang === "it" ? "en" : "it");
+  }
+  // Correzione a mano della traduzione: viene ricordata e usata ogni volta che compare la stessa frase
+  function editTranslation(s, r) {
+    const lang = state.lang;
+    const d = r.trData;
+    const t = {
+      title: d.title,
+      items: s.items.map((src, i) => (src.img ? src : { ...src, text: d.items[i].text })),
+      imgItems: (s.imgItems || []).map((src, i) => (src.img ? src : { ...src, text: d.imgItems[i].text })),
+    };
+    r.editing = true;
+    const c = r.content;
+    c.textContent = "";
+    const help = el("p", "edit-help", "Stai correggendo la TRADUZIONE (" + (lang === "it" ? "italiano" : "inglese") + "). Le correzioni vengono ricordate e usate ogni volta che ricompare la stessa frase. Il testo originale non cambia.");
+    const ta = el("textarea", "edit-area");
+    ta.value = notesToEditText(t);
+    ta.rows = Math.min(20, ta.value.split("\n").length + 2);
+    const bar = el("div", "edit-bar");
+    const save = el("button", "btn small primary", "Salva traduzione");
+    const cancel = el("button", "btn small", "Annulla");
+    bar.append(save, cancel);
+    c.append(help, ta, bar);
+    ta.focus();
+    const close = () => { r.editing = false; r.shownLang = null; r.trData = null; syncLang(s); };
+    cancel.onclick = close;
+    save.onclick = () => {
+      const res = parseEditText(ta.value, true, slideFormulas(t));
+      // [originale, traduzione attuale, traduzione corretta]: si ricordano solo le righe cambiate
+      const pairs = [[s.title, t.title, res.title]];
+      const textOnly = (arr) => arr.filter((i) => !i.img);
+      const a1 = textOnly(s.items), c1 = textOnly(t.items), b1 = textOnly(res.items);
+      a1.forEach((src, i) => b1[i] && pairs.push([src.text, c1[i] && c1[i].text, b1[i].text]));
+      const a2 = textOnly(s.imgItems || []), c2 = textOnly(t.imgItems), b2 = textOnly(res.imgItems);
+      a2.forEach((src, i) => b2[i] && pairs.push([src.text, c2[i] && c2[i].text, b2[i].text]));
+      for (const [o, cur, n] of pairs) {
+        const op = plain(o);
+        if (!op || !n || clean(n) === clean(cur || "")) continue;
+        const from = lineLang(s, op);
+        if (from !== lang) Translate.setFix(from, lang, op, n);
+      }
+      close();
+      toast("Traduzione corretta e ricordata");
+    };
+  }
   function editSlide(s) {
     const r = rowsById.get(s.id);
     if (!r || r.editing) return;
+    if (state.lang !== "orig" && r.trData && r.shownLang === state.lang) { editTranslation(s, r); return; }
     r.editing = true;
     const c = r.content;
     c.textContent = "";
@@ -2183,13 +2404,28 @@ onmessage = async (e) => {
   }
 
   async function translatedSlide(s, lang) {
-    const from = s.lang && s.lang !== "unknown" ? s.lang : (lang === "it" ? "en" : "it");
-    if (from === lang) return null;
+    const slideFrom = s.lang && s.lang !== "unknown" ? s.lang : (lang === "it" ? "en" : "it");
     const img = s.imgItems || [];
     // le formule (ritagli) non si traducono; apici e pedici vanno al traduttore in forma semplice
     const tx = (i) => (i.img ? "" : plain(i.text));
     const arr = [plain(s.title), ...s.items.map(tx), ...img.map(tx), ...s.speaker];
-    const tr = await Translate.lines(arr, from, lang);
+    // la lingua si decide riga per riga: una frase inglese in una slide italiana viene tradotta lo stesso
+    const tr = arr.slice();
+    const groups = { it: [], en: [] };
+    let changed = 0;
+    arr.forEach((t, i) => {
+      if (!t || !t.trim()) return;
+      let l = detectLang(t);
+      if (l === "unknown") l = slideFrom;
+      if (l !== lang) groups[l].push(i);
+    });
+    for (const from of ["it", "en"]) {
+      const idx = groups[from];
+      if (!idx.length) continue;
+      const out = await Translate.lines(idx.map((i) => arr[i]), from, lang);
+      idx.forEach((i, k) => { tr[i] = out[k]; if (out[k] !== arr[i]) changed++; });
+    }
+    if (!changed) return { same: true };
     const a = 1 + s.items.length, b = a + img.length;
     return {
       title: tr[0],
@@ -2204,16 +2440,25 @@ onmessage = async (e) => {
     const r = rowsById.get(s.id);
     if (!r || r.shownLang === state.lang) return;
     const want = state.lang;
+    const tok = (r.tok = (r.tok || 0) + 1); // solo l'ultima richiesta conta
     if (want === "orig") { renderContent(s, r, null); r.shownLang = "orig"; r.trData = null; return; }
     try {
       const tr = await translatedSlide(s, want);
-      if (state.lang !== want) return;
-      r.trData = tr;
-      renderContent(s, r, tr);
+      if (state.lang !== want || r.tok !== tok || r.editing) return;
+      if (tr && tr.same) {
+        r.trData = null;
+        renderContent(s, r, null);
+        r.trTag.hidden = false;
+        r.trTag.textContent = want === "it" ? "già in italiano" : "already in English";
+      } else {
+        r.trData = tr;
+        renderContent(s, r, tr);
+      }
       r.shownLang = want;
     } catch (e) {
       r.shownLang = null;
-      if (!syncLang._warned) { syncLang._warned = true; toast("Traduzione non riuscita: prova ad aggiornare il browser (Chrome, Edge, Firefox o Safari recenti).", 6000); }
+      if (!syncLang._warned) { syncLang._warned = true; toast("Traduzione non riuscita (" + (e && e.message || "errore") + ").", 8000);
+        console.error(e); }
     }
   }
 
@@ -2532,7 +2777,18 @@ onmessage = async (e) => {
     const base = state.files.length === 1 ? state.files[0].name.replace(/\.[^.]+$/, "") : "slide";
     return "Appunti - " + base + (state.lang !== "orig" ? " (" + state.lang.toUpperCase() + ")" : "") + "." + ext;
   }
-  function download(name, blob) {
+  // Nell'anteprima su claude.ai i file si salvano tramite la pagina ospite; nel file normale con un link
+  async function download(name, blob) {
+    try {
+      const host = window.claude && window.claude.use ? await Promise.race([window.claude.use("downloads"), new Promise((r) => setTimeout(() => r(null), 3000))]) : null;
+      if (host) {
+        await host.save({ filename: name.replace(/\.doc$/, ".html"), data: blob });
+        return;
+      }
+    } catch (e) {
+      if (e && e.code === "declined") return;
+      console.warn(e);
+    }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -2594,7 +2850,7 @@ onmessage = async (e) => {
       $("#trOut").textContent = out;
     } catch (e) {
       if (seq !== trSeq) return;
-      $("#trOut").textContent = "Traduzione non riuscita: prova ad aggiornare il browser (Chrome, Edge, Firefox o Safari recenti).";
+      $("#trOut").textContent = "Traduzione non riuscita: " + ((e && e.message) || "errore sconosciuto") + ".";
     }
   }
 
@@ -2631,6 +2887,25 @@ onmessage = async (e) => {
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") pop.hidden = true; });
   }
 
+  /* ---------------- Glossario ---------------- */
+  function renderGlossary() {
+    const ul = $("#glList");
+    ul.textContent = "";
+    Translate.getGlossary().forEach((g, i) => {
+      const li = el("li");
+      li.append(el("span", null, g.it + "  ⇄  " + g.en));
+      const x = el("button", null, "✕");
+      x.title = "Togli dal glossario";
+      x.onclick = () => { const l = Translate.getGlossary().slice(); l.splice(i, 1); Translate.setGlossary(l); renderGlossary(); retranslate(); };
+      li.append(x);
+      ul.append(li);
+    });
+  }
+  function retranslate() {
+    rowsById.forEach((r) => { r.shownLang = null; r.trData = null; io.unobserve(r.row); io.observe(r.row); });
+    if ($("#trIn").value.trim()) runQuickTranslate();
+  }
+
   /* ---------------- Collegamenti eventi ---------------- */
   function wire() {
     const drop = $("#drop"), input = $("#fileInput");
@@ -2651,8 +2926,25 @@ onmessage = async (e) => {
     $("#search").addEventListener("input", (e) => { clearTimeout(st); st = setTimeout(() => { state.query = e.target.value; applySearch(); }, 150); });
     $("#btnClear").addEventListener("click", clearAll);
 
+    $("#glAdd").addEventListener("click", () => {
+      const it = clean($("#glIt").value), en = clean($("#glEn").value);
+      if (!it || !en) { toast("Scrivi la parola in italiano e in inglese"); return; }
+      const l = Translate.getGlossary().filter((g) => g.it.toLowerCase() !== it.toLowerCase());
+      l.push({ it, en });
+      Translate.setGlossary(l);
+      $("#glIt").value = ""; $("#glEn").value = "";
+      renderGlossary();
+      retranslate();
+      toast("Aggiunto al glossario");
+    });
+    $("#showOrig").addEventListener("change", (e) => {
+      state.showOrig = e.target.checked;
+      DB.put("kv", state.showOrig, "showOrig");
+      rowsById.forEach((r) => { r.shownLang = null; io.unobserve(r.row); io.observe(r.row); });
+    });
     $("#langView").addEventListener("change", async (e) => {
       state.lang = e.target.value;
+      $("#origPick").hidden = state.lang === "orig";
       DB.put("kv", state.lang, "lang");
       syncLang._warned = false;
       if (state.lang !== "orig") Translate.prepare(state.lang === "it" ? "en" : "it", state.lang); // prepara il traduttore
@@ -2704,7 +2996,12 @@ onmessage = async (e) => {
       state.files = files.map(({ id, name, kind, order }) => ({ id, name, kind, order }));
       state.slides = slides.filter((s) => state.files.some((f) => f.id === s.fileId));
       if (lang && ["orig", "it", "en"].includes(lang)) { state.lang = lang; $("#langView").value = lang; }
+      $("#origPick").hidden = state.lang === "orig";
+      state.showOrig = !!(await DB.get("kv", "showOrig"));
+      $("#showOrig").checked = state.showOrig;
       await Translate.loadCache();
+      await Translate.loadUser();
+      renderGlossary();
     } catch (e) { warn(e); }
     renderAll();
   }

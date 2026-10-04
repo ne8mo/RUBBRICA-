@@ -25,6 +25,7 @@ App che funziona sul tuo computer e non serve installarla. Carichi le slide e ot
 - **Slide fatte di immagini** (scansioni, foto, testo dentro un'immagine): l'app legge il testo dall'immagine, tutto sul computer e senza internet.
   Questi appunti hanno l'etichetta gialla **"letto dall'immagine"**. Sulle immagini difficili (foto storte, luce non uniforme, sfondi scuri, bassa risoluzione) l'app fa una seconda lettura più accurata e tiene la migliore.
   Le parole su cui l'app non è sicura sono **evidenziate in giallo**: controllale sulla slide accanto.
+- **Eliminare**: passa con il mouse su un punto e clicca **✕** per eliminarlo; il pulsante **Elimina** in alto a destra di ogni slide la toglie tutta. Compare sempre **Annulla**, in caso di errore.
 - **Correggi**: ogni slide ha il pulsante *Correggi* per sistemare a mano gli appunti (prima riga = titolo, ogni punto inizia con «- »). Le correzioni si salvano da sole.
 - Se una slide ha sia testo sia immagini con scritte (per esempio uno screenshot o una tabella incollata come immagine), il testo delle immagini compare a parte, sotto **"Testo nelle immagini della slide"**.
 - Le scritte a mano e le immagini molto piccole o confuse possono non essere lette. Le foto senza scritte vengono ignorate.
@@ -50,6 +51,10 @@ La traduzione avviene **tutta sul computer**: niente internet, niente servizi o 
 - Puoi anche **selezionare del testo** negli appunti e cliccare **Traduci**.
 - La prima volta che traduci servono alcuni secondi per preparare il traduttore; dopo è immediato.
 - Formule e simboli non vengono toccati dal traduttore: restano esattamente come sulla slide.
+- La lingua viene riconosciuta riga per riga: una frase inglese dentro una slide italiana viene tradotta lo stesso. Se una slide è già nella lingua scelta compare l'etichetta *già in italiano*.
+- **con originale**: spunta questa casella (accanto a *Appunti in*) per vedere in piccolo il testo originale sotto ogni traduzione.
+- **Correggere una traduzione**: con gli appunti tradotti, premi *Correggi* e modifica il testo. La correzione viene ricordata e usata ogni volta che ricompare la stessa frase.
+- **Glossario** (nel pannello *Traduttore*): scrivi una parola in italiano e come vuoi che sia in inglese (es. «relazione» ⇄ «relation»). Da quel momento viene tradotta sempre così, in tutte e due le direzioni.
 - È una traduzione automatica, quindi può contenere qualche imprecisione. Il testo originale delle slide non viene mai modificato: per tornarci scegli *Lingua originale*.
 
 ## Esportare

@@ -158,6 +158,30 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px; }
 .edit-bar { display: flex; gap: 8px; margin-top: 6px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.orig { font-size: 12.5px; color: var(--muted); margin: 1px 0 3px; font-style: italic; }
+.orig-title { margin-top: -4px; margin-bottom: 6px; }
+.orig-pick { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.glossary { border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; }
+.glossary summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.glossary p { margin: 6px 0; }
+.gl-add { display: flex; gap: 6px; align-items: center; }
+.gl-add input { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; background: var(--surface); }
+#glList { list-style: none; padding: 0; margin: 8px 0 0; max-height: 160px; overflow: auto; }
+#glList li { display: flex; align-items: center; gap: 6px; font-size: 14px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+#glList li span { flex: 1; }
+#glList button { border: 0; background: transparent; cursor: pointer; color: var(--muted); }
+.notes li { position: relative; }
+.del-item {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; margin-left: 6px;
+  padding: 0 4px; border-radius: 4px; opacity: 0; vertical-align: middle;
+}
+.notes li:hover > .del-item, .del-item:focus { opacity: 1; }
+.del-item:hover { color: var(--danger); background: var(--surface-2); }
+@media (hover: none) { .del-item { opacity: .6; } }
+.danger-mini:hover { color: var(--danger); }
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast-btn { border: 0; background: transparent; color: #8fb0ff; font-weight: 700; cursor: pointer; padding: 2px 4px; }
+@media print { .del-item, .danger-mini { display: none !important; } }
 .notes h3 { margin: 6px 0 6px; font-size: 17px; line-height: 1.35; }
 .notes ul { margin: 0; padding-left: 20px; }
 .notes li { margin: 2px 0; overflow-wrap: anywhere; }

@@ -23,6 +23,7 @@
         <option value="en">English</option>
       </select>
     </label>
+    <label class="orig-pick" id="origPick" hidden title="Mostra in piccolo il testo originale sotto la traduzione"><input type="checkbox" id="showOrig"> con originale</label>
     <button id="btnSchema" class="btn">Schemi</button>
     <button id="btnTranslator" class="btn">Traduttore</button>
     <div class="menu">
@@ -83,6 +84,12 @@
     <div id="trOut" class="tr-out" aria-live="polite"></div>
     <button id="trCopy" class="btn small">Copia</button>
   </div>
+  <details class="glossary" id="glossary">
+    <summary>Glossario: parole tradotte sempre come vuoi tu</summary>
+    <p class="muted small">Esempio: «relazione» → «relation». Vale per tutte le traduzioni, in entrambe le direzioni.</p>
+    <div class="gl-add"><input id="glIt" placeholder="Italiano"><span>⇄</span><input id="glEn" placeholder="English"><button id="glAdd" class="btn small primary">Aggiungi</button></div>
+    <ul id="glList"></ul>
+  </details>
   <p id="trEngine" class="muted small">La traduzione avviene tutta sul computer, senza internet e senza servizi esterni. La prima volta servono alcuni secondi per prepararla.</p>
   <p class="muted small">Suggerimento: seleziona del testo negli appunti per tradurlo al volo.</p>
 </aside>
