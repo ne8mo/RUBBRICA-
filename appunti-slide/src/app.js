@@ -2603,11 +2603,32 @@ onmessage = async (e) => {
 
   /* ---------------- Caricamento file ---------------- */
   let busy = Promise.resolve();
+  function setStatus(text, kind) {
+    const st = $("#loadStatus");
+    st.textContent = text || "";
+    st.className = "load-status" + (kind ? " " + kind : "");
+    st.hidden = !text;
+  }
   function handleFiles(fileList) {
     const files = Array.from(fileList || []);
-    if (!files.length) return;
-    busy = busy.then(() => importFiles(files));
+    if (!files.length) {
+      setStatus("Il browser non ha passato nessun file all'app. Se sei nell'app di Claude sul telefono, apri la pagina nel browser (Chrome o Safari) oppure usa il file AppuntiSlide.html sul computer.", "warn");
+      return;
+    }
+    setStatus("Ricevut" + (files.length === 1 ? "o 1 file" : "i " + files.length + " file") + ": " + files.map((f) => f.name).join(", ") + " — lettura in corso…");
+    // la catena continua anche se un caricamento precedente è fallito
+    busy = busy.then(() => importFiles(files)).then(() => setStatus("")).catch((e) => showError(e, "durante il caricamento"));
   }
+  // Errori mostrati sulla pagina (così si capisce cosa non va, anche senza strumenti)
+  function showError(e, where) {
+    console.error(e);
+    const msg = (e && (e.message || e.reason || e)) + "";
+    setStatus("Errore " + (where || "") + ": " + msg.slice(0, 300), "err");
+    const prog = document.getElementById("progress");
+    if (prog) prog.hidden = true;
+  }
+  window.addEventListener("error", (ev) => showError(ev.error || ev.message, "dell'app"));
+  window.addEventListener("unhandledrejection", (ev) => showError(ev.reason, "dell'app"));
 
   const DOC_KINDS = { pdf: "pdf", pptx: "pptx", ppsx: "pptx", potx: "pptx", pptm: "pptx", ppsm: "pptx", ppt: "ppt", pps: "ppt", pot: "ppt", odp: "odp", otp: "odp" };
   const IMG_EXT = new Set(["jpg", "jpeg", "png", "gif", "bmp", "webp", "jfif", "avif"]);
@@ -2955,7 +2976,7 @@ onmessage = async (e) => {
   /* ---------------- Collegamenti eventi ---------------- */
   function wire() {
     const drop = $("#drop"), input = $("#fileInput");
-    drop.addEventListener("click", () => input.click());
+
     drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
     input.addEventListener("change", () => { handleFiles(input.files); input.value = ""; });
     ["dragenter", "dragover"].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
@@ -3036,6 +3057,7 @@ onmessage = async (e) => {
   /* ---------------- Avvio ---------------- */
   async function start() {
     wire();
+    $("#readyMark").hidden = false;
     try { await Schema.init(); } catch (e) { warn(e); }
     try {
       const [files, slides, lang] = await Promise.all([DB.all("files"), DB.all("slides"), DB.get("kv", "lang")]);
