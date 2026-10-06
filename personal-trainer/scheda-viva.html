@@ -372,6 +372,23 @@ const WARM={
  lower:['5 minuti di cyclette o ellittica a ritmo leggero','Cat-camel ×8 (mobilità della schiena)','Glute bridge a corpo libero 2×12, pausa di 1 s in alto','Camminata laterale con elastico 2×10 passi per lato','Affondi indietro a corpo libero ×6 per lato','1–2 serie leggere del primo esercizio'],
  upper:['5 minuti di vogatore leggero o ellittica','Chin tuck (porta il mento indietro) ×10','Band pull-apart con elastico 2×15','Rotazioni toraciche in quadrupedia ×8 per lato','Wall slide (braccia che scivolano sul muro) ×10','1–2 serie leggere del primo esercizio']
 };
+const CARDIO=[
+ ['camminata','Camminata in salita','Tapis roulant con pendenza 6–12% e 4,5–5,5 km/h, senza tenerti al corrimano. Lavora anche glutei e femorali: è la scelta migliore per te.'],
+ ['cyclette','Cyclette','Sellino all’altezza dell’anca, busto dritto. Nessun impatto: ideale quando la schiena è sensibile.'],
+ ['ellittica','Ellittica','Movimento fluido senza impatto, coinvolge anche le braccia. Busto dritto, non appoggiarti alle maniglie.'],
+ ['aperto','Camminata veloce all’aperto','Passo svelto, meglio se con qualche salita. Vale come seduta di cardio a tutti gli effetti.'],
+ ['vogatore','Vogatore','Solo a ritmo moderato e con tecnica corretta: in fondo alla remata le cosce comprimono l’addome. Evitalo se senti l’inguine.']
+];
+const cardioName=k=>(CARDIO.find(c=>c[0]===k)||[k,k])[1];
+function cardioPlan(m,w){
+ let post=m===1?10:m===2?12:15,rest=m===1?{n:1,min:25}:m===2?{n:2,min:25}:{n:2,min:30};
+ const intervals=m>=3&&w!==4;
+ if(w===4){post=10;rest={n:1,min:25}}
+ const upper=Object.values(templates()).filter(t=>t.tipo==='upper').length;
+ return {post,rest,intervals,target:post*upper+rest.n*rest.min}}
+function zone(){const fc=Math.round(208-.7*state.profile.eta);return {fc,lo:Math.round(fc*.6),hi:Math.round(fc*.7)}}
+function weekCardio(){const d=Math.max(0,daysBetween(state.profile.inizio,iso()));const ws=new Date(Date.parse(state.profile.inizio+'T12:00:00')+Math.floor(d/7)*7*864e5);const wsIso=iso(ws);
+ return state.cardio.filter(c=>{const x=daysBetween(wsIso,c.date);return x>=0&&x<7}).reduce((a,c)=>a+(+c.min||0),0)}
 const ROUTINE=['Chin tuck ×10, tieni 2 s','Cat-camel ×10','Dead bug ×8 per lato','Bird dog ×8 per lato','Open book (rotazione toracica da sdraiato) ×8 per lato','Glute bridge ×15'];
 
 /* ============ STATO ============ */
@@ -379,20 +396,20 @@ const LS='scheda-viva-v1';
 function iso(d=new Date()){const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,10)}
 function daysBetween(a,b){return Math.round((Date.parse(b+'T12:00:00')-Date.parse(a+'T12:00:00'))/864e5)}
 function fmtDate(s){try{return new Date(s+'T12:00:00').toLocaleDateString('it-IT',{day:'numeric',month:'short'})}catch(e){return s}}
-function fresh(){return {v:1,profile:{eta:28,altezza:170,peso:70,giorni:4,inizio:iso(),accettato:false},swaps:{},flags:[],bw:[{d:iso(),kg:70}],sessions:[],draft:null,updatedAt:0}}
+function fresh(){return {v:1,profile:{eta:28,altezza:170,peso:70,giorni:4,inizio:iso(),accettato:false},swaps:{},flags:[],bw:[{d:iso(),kg:70}],sessions:[],cardio:[],draft:null,updatedAt:0}}
 let state=fresh();
 try{const s=JSON.parse(localStorage.getItem(LS)||'null');if(s&&s.v===1)state=Object.assign(fresh(),s)}catch(e){}
 function lsSet(){try{localStorage.setItem(LS,JSON.stringify(state))}catch(e){}}
 function save(){state.updatedAt=Date.now();lsSet();queueCloudProfile()}
 function saveDraft(){lsSet()}
-const ui={tab:'oggi',open:{},planNext:false,progEx:'',q:'',confirm:null,finish:null,warmOpen:true};
+const ui={tab:'oggi',open:{},planNext:false,progEx:'',q:'',confirm:null,finish:null,warmOpen:true,cardioForm:null};
 
 /* ============ CLOUD (db) ============ */
 let db=null,uid=null,cloudStatus='solo su questo dispositivo',cloudChain=Promise.resolve(),profTimer=null;
 const profRef=()=>db.doc('data/users/'+uid+'/profile');
 const sessCol=()=>profRef().collection('sessions');
 function cloudFail(){cloudStatus='errore di sincronizzazione: i dati restano salvati su questo dispositivo';if(ui.tab==='profilo')render()}
-function queueCloudProfile(){if(!db)return;clearTimeout(profTimer);profTimer=setTimeout(()=>{const body=JSON.parse(JSON.stringify({profile:state.profile,swaps:state.swaps,flags:state.flags.slice(-200),bw:state.bw.slice(-400),updatedAt:state.updatedAt}));cloudChain=cloudChain.then(()=>profRef().set(body)).catch(cloudFail)},800)}
+function queueCloudProfile(){if(!db)return;clearTimeout(profTimer);profTimer=setTimeout(()=>{const body=JSON.parse(JSON.stringify({profile:state.profile,swaps:state.swaps,flags:state.flags.slice(-200),bw:state.bw.slice(-400),cardio:state.cardio.slice(-400),updatedAt:state.updatedAt}));cloudChain=cloudChain.then(()=>profRef().set(body)).catch(cloudFail)},800)}
 function cloudSession(s){if(!db)return;const body=JSON.parse(JSON.stringify(s));cloudChain=cloudChain.then(()=>sessCol().doc(s.id).set(body)).catch(cloudFail)}
 function cloudDel(id){if(!db)return;cloudChain=cloudChain.then(()=>sessCol().doc(id).delete()).catch(cloudFail)}
 async function initCloud(){
@@ -411,7 +428,7 @@ async function initCloud(){
   const toUp=state.sessions.filter(s=>!remoteIds.has(s.id));
   if(remote&&(remote.updatedAt||0)>(state.updatedAt||0)){
    const r=JSON.parse(JSON.stringify(remote));
-   state.profile=Object.assign(fresh().profile,r.profile||{});state.swaps=r.swaps||{};state.flags=r.flags||[];state.bw=r.bw||[];state.updatedAt=r.updatedAt;
+   state.profile=Object.assign(fresh().profile,r.profile||{});state.swaps=r.swaps||{};state.flags=r.flags||[];state.bw=r.bw||[];state.cardio=r.cardio||[];state.updatedAt=r.updatedAt;
   }else{queueCloudProfile()}
   toUp.forEach(cloudSession);
   lsSet();cloudStatus='sincronizzato con il tuo account';render();
@@ -500,6 +517,11 @@ function vOggi(){
  const p=dayPlan(nk,c.month,c.week);
  h+='<section class="card"><div class="row between"><div><div class="label">Anteprima del prossimo</div><h3>'+nk+' · '+esc(p.nome)+'</h3></div><button class="btn primary" data-a="start" data-v="'+nk+'">Inizia</button></div><ul class="clean">'+p.ex.map((x,i)=>'<li class="row" style="flex-wrap:nowrap;align-items:flex-start"><span class="num muted" style="width:1.4em">'+(i+1)+'</span><span style="flex:1;min-width:0">'+esc(E[x.id].n)+'</span><span class="small muted num" style="white-space:nowrap">'+x.rx.s+' × '+(E[x.id].core?esc(E[x.id].core):x.rx.r[0]+'–'+x.rx.r[1])+'</span></li>').join('')+'</ul></section>';
  h+='<section class="card accent"><div class="label">Settimana '+c.week+'</div><p>'+esc(WEEKS[c.week-1])+'</p></section>';
+ const cp=cardioPlan(c.month,c.week),done=weekCardio(),z=zone(),pct=Math.min(100,Math.round(100*done/cp.target));
+ h+='<section class="card"><div class="row between"><h3>Cardio della settimana</h3><span class="pill '+(done>=cp.target?'ok':'blue')+' num">'+done+' / '+cp.target+' min</span></div>'+
+  '<div style="height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+(done>=cp.target?'var(--ok)':'var(--accent)')+'"></div></div>'+
+  '<ul class="dots small"><li><b>'+cp.post+' min</b> dopo i pesi nei giorni di parte alta (te lo propongo a fine allenamento).</li><li><b>'+cp.rest.n+(cp.rest.n>1?' sedute':' seduta')+' da '+cp.rest.min+' min</b> nei giorni liberi.</li><li>Intensità: zona 2, circa <b class="num">'+z.lo+'–'+z.hi+' battiti/min</b>. Riesci a parlare ma non a cantare.</li>'+(cp.intervals?'<li>Facoltativo, al posto di una seduta libera: intervalli in cyclette, 6 × (1 min vivace + 2 min facile), fatica massima 7 su 10.</li>':'')+'</ul>'+
+  '<button class="btn" data-a="cardioOpen">Registra una seduta di cardio</button></section>';
  const recent=state.sessions.slice(-3).reverse();
  if(recent.length)h+='<section class="card"><h3>Ultimi allenamenti</h3><ul class="clean">'+recent.map(s=>'<li class="row between"><span>'+fmtDate(s.date)+' · <b>'+esc(s.dayKey)+'</b> '+esc(s.dayName)+'</span><span class="pill num">Fatica '+s.rpe+'/10</span></li>').join('')+'</ul></section>';
  return h}
@@ -516,6 +538,12 @@ function vWorkout(){
   if(open)s+=howBlock(x.id);
   if(!x.flag)s+='<div class="flagrow"><span class="small muted">Fastidio?</span><button class="btn sm" data-a="flag" data-i="'+i+'" data-v="inguine">Inguine</button><button class="btn sm" data-a="flag" data-i="'+i+'" data-v="schiena">Schiena</button><button class="btn sm" data-a="flag" data-i="'+i+'" data-v="cervicale">Cervicale</button></div>';
   return s+'</div>'}).join('')+'</section>';
+ const cp=cardioPlan(d.month,d.week);if(!d.cardio)d.cardio={tipo:'camminata',min:'',done:false};
+ if(d.tipo==='upper')h+='<section class="card"><div class="row between"><div><div class="label">Dopo i pesi</div><h3>Cardio finale: '+cp.post+' minuti</h3></div><button class="chk'+(d.cardio.done?' on':'')+'" data-a="cardioDone" aria-label="Cardio fatto"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>'+
+  '<p class="small">Zona 2: circa <b class="num">'+zone().lo+'–'+zone().hi+' battiti/min</b>, respiro accelerato ma riesci a parlare.</p>'+
+  '<div class="grid2"><div class="field"><label class="label" for="cdTipo">Macchina</label><select id="cdTipo" data-cd="tipo">'+CARDIO.map(k=>'<option value="'+k[0]+'"'+(d.cardio.tipo===k[0]?' selected':'')+'>'+esc(k[1])+'</option>').join('')+'</select></div><div class="field"><label class="label" for="cdMin">Minuti fatti</label><input id="cdMin" inputmode="numeric" data-cd="min" value="'+esc(d.cardio.min)+'" placeholder="'+cp.post+'"></div></div>'+
+  '<p class="small muted">'+esc((CARDIO.find(k=>k[0]===d.cardio.tipo)||CARDIO[0])[2])+'</p></section>';
+ else h+='<section class="card flat"><p class="small"><b>Niente cardio dopo i pesi oggi:</b> le gambe devono recuperare. Al massimo 5 minuti di camminata lenta per defaticare.</p></section>';
  h+='<section class="stack"><button class="btn primary block" data-a="finishOpen">Termina allenamento</button>'+(ui.confirm==='discard'?'<div class="card danger"><p>Eliminare questo allenamento senza salvarlo?</p><div class="row"><button class="btn danger" data-a="discard">Sì, elimina</button><button class="btn" data-a="cancelConfirm">Annulla</button></div></div>':'<button class="btn ghost" data-a="askDiscard">Annulla allenamento</button>')+'</section>';
  return h}
 
@@ -527,6 +555,10 @@ function vPiano(){
  keys.forEach(k=>{const p=dayPlan(k,m,ui.planNext?1:c0.week);h+='<section class="card"><h3>'+k+' · '+esc(p.nome)+'</h3><div class="tbl"><table><thead><tr><th>Esercizio</th><th>Serie × rip.</th><th>Rec.</th></tr></thead><tbody>'+p.ex.map(x=>'<tr><td>'+esc(E[x.id].n)+'<div class="small muted">'+ROLE[x.role]+'</div></td><td class="num" style="white-space:nowrap">'+x.rx.s+' × '+(E[x.id].core?esc(E[x.id].core):x.rx.r[0]+'–'+x.rx.r[1])+'</td><td class="num">'+x.rx.rest+' s</td></tr>').join('')+'</tbody></table></div></section>'});
  const P=state.profile;const bmr=10*P.peso+6.25*P.altezza-5*P.eta+5;const tdee=Math.round(bmr*1.55/50)*50;const target=tdee+250;
  h+='<section class="card"><h3>Alimentazione per la massa</h3><p>Stima indicativa per '+P.peso+' kg, '+P.altezza+' cm, '+P.eta+' anni, con lavoro misto e 3–4 allenamenti a settimana:</p><ul class="dots"><li>Mantenimento: circa <b class="num">'+tdee+' kcal</b>. Per la massa: circa <b class="num">'+target+' kcal</b> (+250).</li><li>Proteine: <b class="num">'+Math.round(P.peso*1.6)+'–'+Math.round(P.peso*2)+' g</b> al giorno, divise in 3–4 pasti.</li><li>Obiettivo sulla bilancia: <b>+0,25–0,5 kg al mese</b>. Se sali più in fretta, togli 150 kcal.</li><li><b>Per l’ernia:</b> fibre (verdura, legumi, cereali integrali) e 2 litri d’acqua al giorno. La stitichezza costringe a spingere e aumenta la pressione sull’inguine.</li></ul></section>';
+ const cpp=cardioPlan(m,ui.planNext?1:c0.week),zz=zone();
+ h+='<section class="card"><h3>Cardio</h3><p>Serve a cuore, recupero e definizione, in dosi che non tolgono energie alla massa. Sempre a basso impatto e senza trattenere il fiato.</p><div class="tbl"><table><tbody>'+
+  '<tr><th>Dopo i pesi</th><td>'+cpp.post+' min, solo nei giorni di parte alta</td></tr><tr><th>Giorni liberi</th><td>'+cpp.rest.n+' × '+cpp.rest.min+' min</td></tr><tr><th>Intensità</th><td>Zona 2: '+zz.lo+'–'+zz.hi+' battiti/min (FC max stimata '+zz.fc+')</td></tr>'+(cpp.intervals?'<tr><th>Intervalli</th><td>Facoltativi, al posto di una seduta libera: cyclette 6 × (1 min vivace + 2 min facile)</td></tr>':'')+'<tr><th>Totale</th><td><b>'+cpp.target+' min a settimana</b></td></tr></tbody></table></div>'+
+  '<p class="small"><b>Macchine consigliate:</b> camminata in salita (allena anche i glutei), cyclette, ellittica. <b>Da evitare per ora:</b> corsa veloce, salti, corda, burpees e sprint.</p><p class="small muted">Se dopo 3–4 settimane il peso non sale, aggiungi calorie invece di togliere cardio.</p></section>';
  h+='<section class="card"><h3>Routine contro mal di schiena e cervicale</h3><p class="small muted">5 minuti, anche a casa, nei giorni senza palestra.</p><ul class="dots">'+ROUTINE.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul></section>';
  return h}
 
@@ -547,6 +579,9 @@ function vProgressi(){
  if(!ids.length)h+='<p class="muted">Qui comparirà il grafico dei tuoi progressi dopo il primo allenamento registrato. Il valore è il <b>massimale stimato</b> (calcolato dai kg e dalle ripetizioni, senza mai provarlo davvero).</p>';
  else{const sel=ids.includes(ui.progEx)?ui.progEx:ids[0];const pts=[];state.sessions.forEach(s=>{const e=s.exercises.find(x=>x.id===sel);if(!e)return;const v=e.sets.filter(t=>+t.kg>0&&+t.reps>0).map(e1);if(v.length)pts.push({x:s.date,y:Math.round(Math.max(...v)*10)/10})});
   h+='<div class="field"><label class="label" for="progSel">Esercizio</label><select id="progSel" data-f="progEx">'+ids.map(id=>'<option value="'+id+'"'+(id===sel?' selected':'')+'>'+esc(E[id].n)+'</option>').join('')+'</select></div>'+lineChart(pts,'kg')+'<p class="small muted">Massimale stimato in kg (formula di Epley). Serve solo per vedere i progressi, non da provare.</p>'}
+ h+='</section><section class="card"><div class="row between"><h3>Cardio</h3><span class="pill num">Questa settimana '+weekCardio()+' min</span></div>';
+ if(!state.cardio.length)h+='<p class="muted">Nessuna seduta registrata. Puoi aggiungerla dalla scheda <b>Oggi</b> o a fine allenamento.</p>';
+ else h+='<ul class="clean">'+state.cardio.slice(-10).reverse().map(c=>'<li class="row between"><span>'+fmtDate(c.date)+' · <b>'+esc(cardioName(c.tipo))+'</b> <span class="num">'+c.min+' min</span> <span class="small muted">'+esc(c.quando||'')+'</span></span>'+(ui.confirm==='dc'+c.id?'<span class="row" style="gap:4px"><button class="btn danger sm" data-a="delCardio" data-v="'+c.id+'">Elimina</button><button class="btn sm" data-a="cancelConfirm">No</button></span>':'<button class="btn ghost sm" data-a="askDelC" data-v="'+c.id+'">Elimina</button>')+'</li>').join('')+'</ul>';
  h+='</section><section class="card"><h3>Storico</h3>';
  if(!state.sessions.length)h+='<p class="muted">Nessun allenamento registrato. Inizia dalla scheda <b>Oggi</b>.</p>';
  else h+='<ul class="clean">'+state.sessions.slice().reverse().map(s=>'<li class="stack" style="border-top:1px solid var(--line);padding-top:8px;gap:4px"><div class="row between"><b>'+fmtDate(s.date)+' · '+esc(s.dayKey)+' '+esc(s.dayName)+'</b><span class="pill num">Fatica '+s.rpe+'/10</span></div><div class="small muted">'+s.exercises.map(e=>esc(E[e.id]?E[e.id].n:e.id)+' '+e.sets.map(t=>(t.kg?String(t.kg).replace('.',',')+'×':'')+t.reps).join(', ')).join(' · ')+'</div>'+([s.inguine&&'inguine',s.schiena&&'schiena',s.cervicale&&'cervicale'].filter(Boolean).length?'<div><span class="pill danger">Fastidio: '+[s.inguine&&'inguine',s.schiena&&'schiena',s.cervicale&&'cervicale'].filter(Boolean).join(', ')+'</span></div>':'')+(s.note?'<div class="small">“'+esc(s.note)+'”</div>':'')+(ui.confirm==='del'+s.id?'<div class="row"><button class="btn danger sm" data-a="delSession" data-v="'+s.id+'">Conferma eliminazione</button><button class="btn sm" data-a="cancelConfirm">Annulla</button></div>':'<div><button class="btn ghost sm" data-a="askDel" data-v="'+s.id+'">Elimina</button></div>')+'</li>').join('')+'</ul>';
@@ -561,7 +596,7 @@ function vEsercizi(){
 function vSicurezza(){
  return '<section class="card danger"><h2>Vai subito al pronto soccorso se</h2><ul class="dots"><li>il dolore all’inguine diventa forte e improvviso;</li><li>il rigonfiamento è duro, dolente e non rientra quando ti sdrai;</li><li>compaiono nausea, vomito, febbre o la pancia gonfia e non riesci ad andare di corpo.</li></ul><p>Possono essere segni di un’ernia strozzata: è un’emergenza.</p></section>'+
  '<section class="card warn"><h3>Fermati e senti il medico se</h3><ul class="dots"><li>il rigonfiamento diventa più grande o lo senti più spesso;</li><li>il fastidio all’inguine dura più di 1–2 giorni dopo l’allenamento;</li><li>il mal di schiena scende lungo la gamba, oppure senti formicolii o perdi forza alle braccia o alle gambe.</li></ul></section>'+
- '<section class="card"><h3>Le regole della scheda</h3><ul class="dots"><li><b>Mai al cedimento.</b> Ogni serie finisce con almeno 2 ripetizioni di riserva (RPE massimo 8).</li><li><b>Niente apnea.</b> Espira durante lo sforzo, inspira nel ritorno. Non trattenere il fiato per “caricarti”.</li><li><b>Niente carichi sulla colonna.</b> Squat e stacco pesanti con bilanciere sono sostituiti da leg press, bulgaro, hip thrust e pull-through.</li><li><b>Addome sicuro.</b> Dead bug, bird dog, Pallof press e plank laterale invece di crunch e sollevamenti delle gambe.</li><li><b>Cervicale.</b> Lat machine sempre davanti, niente scrollate, spalle basse nelle alzate, face pull per la postura.</li><li><b>Come prendi i pesi conta.</b> Solleva manubri e dischi da terra piegando le gambe e espirando.</li><li><b>Fastidio = stop.</b> Usa i pulsanti “Fastidio?” durante l’allenamento: l’esercizio viene sostituito in automatico dalle sedute successive.</li></ul></section>'+
+ '<section class="card"><h3>Le regole della scheda</h3><ul class="dots"><li><b>Mai al cedimento.</b> Ogni serie finisce con almeno 2 ripetizioni di riserva (RPE massimo 8).</li><li><b>Niente apnea.</b> Espira durante lo sforzo, inspira nel ritorno. Non trattenere il fiato per “caricarti”.</li><li><b>Niente carichi sulla colonna.</b> Squat e stacco pesanti con bilanciere sono sostituiti da leg press, bulgaro, hip thrust e pull-through.</li><li><b>Addome sicuro.</b> Dead bug, bird dog, Pallof press e plank laterale invece di crunch e sollevamenti delle gambe.</li><li><b>Cervicale.</b> Lat machine sempre davanti, niente scrollate, spalle basse nelle alzate, face pull per la postura.</li><li><b>Come prendi i pesi conta.</b> Solleva manubri e dischi da terra piegando le gambe e espirando.</li><li><b>Cardio a basso impatto.</b> Camminata in salita, cyclette o ellittica in zona 2. Per ora niente salti, corda, burpees o sprint.</li><li><b>Fastidio = stop.</b> Usa i pulsanti “Fastidio?” durante l’allenamento: l’esercizio viene sostituito in automatico dalle sedute successive.</li></ul></section>'+
  '<section class="card accent"><h3>Il primo passo è gratuito</h3><p>Chiedi al tuo medico di base se puoi allenarti con i pesi e se è previsto un intervento. Se ti operano, dopo l’intervento questa scheda va sospesa e ripresa solo con il suo via libera.</p></section>'}
 
 function vProfilo(){
@@ -588,6 +623,7 @@ function render(){
  renderSheet();
 }
 function renderSheet(){
+ const cf=ui.cardioForm;if(cf){$('#sheet').innerHTML='<div class="sheet"><div class="in" role="dialog" aria-label="Registra cardio"><h2>Seduta di cardio</h2><div class="stack"><span class="label">Attività</span>'+CARDIO.map(k=>'<button class="btn'+(cf.tipo===k[0]?' primary':'')+'" style="text-align:left" data-a="cardioTipo" data-v="'+k[0]+'">'+esc(k[1])+'</button>').join('')+'<p class="small muted">'+esc((CARDIO.find(k=>k[0]===cf.tipo)||CARDIO[0])[2])+'</p></div><div class="field"><label class="label" for="cfMin">Minuti</label><input id="cfMin" inputmode="numeric" placeholder="'+cardioPlan(cycle().month,cycle().week).rest.min+'"></div><div class="field"><span class="label">Fatica (1–10)</span><div class="seg">'+[4,5,6,7,8].map(n=>'<button data-a="cardioRpe" data-v="'+n+'" class="'+(cf.rpe===n?'on':'')+'">'+n+'</button>').join('')+'</div><span class="small muted">In zona 2 la fatica è 5–6. Gli intervalli arrivano al massimo a 7.</span></div><div class="row"><button class="btn primary" style="flex:1" data-a="cardioSave">Salva</button><button class="btn" data-a="cardioCancel">Indietro</button></div></div></div>';return}
  const f=ui.finish;if(!f){$('#sheet').innerHTML='';return}
  $('#sheet').innerHTML='<div class="sheet"><div class="in" role="dialog" aria-label="Fine allenamento"><h2>Com’è andata?</h2><div class="field"><span class="label">Fatica complessiva (RPE)</span><div class="seg">'+[5,6,7,8,9,10].map(n=>'<button data-a="rpe" data-v="'+n+'" class="'+(f.rpe===n?'on':'')+'">'+n+'</button>').join('')+'</div><span class="small muted">6 = facile, 8 = impegnativo ma sotto controllo, 10 = al limite.</span></div>'+
  '<div class="stack"><span class="label">Hai sentito fastidio?</span>'+[['inguine','All’inguine'],['schiena','Alla schiena'],['cervicale','Alla cervicale']].map(k=>'<label class="check"><input type="checkbox" data-ff="'+k[0]+'" '+(f[k[0]]?'checked':'')+'><span>'+k[1]+'</span></label>').join('')+'</div>'+
@@ -625,7 +661,15 @@ const A={
  finishSave:()=>{const d=state.draft,f=ui.finish;
   const s={id:'s'+Date.now(),ts:Date.now(),date:d.date,month:d.month,week:d.week,deload:d.deload,dayKey:d.dayKey,dayName:d.dayName,rpe:f.rpe,inguine:!!f.inguine,schiena:!!f.schiena,cervicale:!!f.cervicale,note:(f.note||'').slice(0,500),
    exercises:d.ex.map(x=>({id:x.id,lo:x.rx.r?x.rx.r[0]:null,hi:x.rx.r?x.rx.r[1]:null,flag:x.flag,sets:x.sets.filter(st=>st.done||st.reps!=='').map(st=>({kg:parseFloat(String(st.kg).replace(',','.'))||0,reps:parseInt(st.reps,10)||0}))})).filter(x=>x.sets.length)};
+  const cd=d.cardio;const cm=cd?parseInt(cd.min,10)||(cd.done?cardioPlan(d.month,d.week).post:0):0;if(cm>0)state.cardio.push({id:'c'+Date.now(),date:d.date,tipo:cd.tipo,min:cm,quando:'dopo i pesi'});
   state.sessions.push(s);state.draft=null;ui.finish=null;stopTimer();save();cloudSession(s);try{wake&&wake.release()}catch(e){}render();window.scrollTo(0,0);toast('Allenamento salvato')},
+ cardioDone:()=>{const c=state.draft.cardio;c.done=!c.done;if(c.done&&c.min==='')c.min=String(cardioPlan(state.draft.month,state.draft.week).post);saveDraft();render()},
+ cardioOpen:()=>{ui.cardioForm={tipo:'camminata',min:'',rpe:6,date:iso()};renderSheet()},
+ cardioCancel:()=>{ui.cardioForm=null;renderSheet()},
+ cardioRpe:t=>{ui.cardioForm.rpe=+t.dataset.v;renderSheet()},
+ cardioTipo:t=>{ui.cardioForm.tipo=t.dataset.v;renderSheet()},
+ cardioSave:()=>{const f=ui.cardioForm;const m=parseInt($('#cfMin').value,10);if(!(m>0&&m<300)){toast('Scrivi i minuti, per esempio 30');return}state.cardio.push({id:'c'+Date.now(),date:iso(),tipo:f.tipo,min:m,rpe:f.rpe,quando:'giorno libero'});ui.cardioForm=null;save();render();toast('Cardio salvato')},
+ delCardio:t=>{state.cardio=state.cardio.filter(c=>c.id!==t.dataset.v);ui.confirm=null;save();render()},
  askDiscard:()=>{ui.confirm='discard';render()},
  discard:()=>{state.draft=null;ui.confirm=null;stopTimer();saveDraft();render()},
  cancelConfirm:()=>{ui.confirm=null;render()},
@@ -633,17 +677,18 @@ const A={
  tskip:()=>stopTimer(),
  planNext:()=>{ui.planNext=!ui.planNext;render()},
  bwAdd:()=>{const v=parseFloat(($('#bwIn').value||'').replace(',','.'));if(!(v>30&&v<250)){toast('Scrivi il peso in kg, per esempio 70,5');return}const d=iso();state.bw=state.bw.filter(b=>b.d!==d);state.bw.push({d,kg:v});state.bw.sort((a,b)=>a.d<b.d?-1:1);state.profile.peso=v;save();render();toast('Peso salvato')},
+ askDelC:t=>{ui.confirm='dc'+t.dataset.v;render()},
  askDel:t=>{ui.confirm='del'+t.dataset.v;render()},
  delSession:t=>{const id=t.dataset.v;state.sessions=state.sessions.filter(s=>s.id!==id);ui.confirm=null;save();cloudDel(id);render()},
  giorni:t=>{state.profile.giorni=+t.dataset.v;save();render()},
  unswap:t=>{delete state.swaps[t.dataset.v];save();render()},
  askReset:()=>{ui.confirm='reset';render()},
  resetCycle:()=>{state.profile.inizio=iso();ui.confirm=null;save();render();toast('Programma ripartito dal mese 1')},
- copyExport:()=>{const txt=JSON.stringify({v:1,profile:state.profile,swaps:state.swaps,flags:state.flags,bw:state.bw,sessions:state.sessions});
+ copyExport:()=>{const txt=JSON.stringify({v:1,profile:state.profile,swaps:state.swaps,flags:state.flags,bw:state.bw,cardio:state.cardio,sessions:state.sessions});
   const ta=$('#impTxt');const fallback=()=>{ta.value=txt;ta.select();toast('Testo selezionato: copialo con Copia')};
   try{navigator.clipboard.writeText(txt).then(()=>toast('Backup copiato'),fallback)}catch(e){fallback()}},
  importData:()=>{try{const o=JSON.parse($('#impTxt').value);if(!o||o.v!==1||!Array.isArray(o.sessions))throw 0;
-  state.profile=Object.assign(fresh().profile,o.profile||{});state.swaps=o.swaps||{};state.flags=o.flags||[];state.bw=o.bw||[];
+  state.profile=Object.assign(fresh().profile,o.profile||{});state.swaps=o.swaps||{};state.flags=o.flags||[];state.bw=o.bw||[];state.cardio=o.cardio||[];
   const have=new Set(state.sessions.map(s=>s.id));o.sessions.forEach(s=>{if(!have.has(s.id)){state.sessions.push(s);cloudSession(s)}});state.sessions.sort((a,b)=>(a.ts||0)-(b.ts||0));
   save();render();toast('Backup importato')}catch(e){toast('Il testo incollato non è un backup valido di Scheda Viva')}}
 };
@@ -655,7 +700,8 @@ document.addEventListener('input',e=>{const t=e.target;
  else if(t.dataset.f==='q'){ui.q=t.value;const pos=t.selectionStart;render();const s=$('#search');s.focus();try{s.setSelectionRange(pos,pos)}catch(err){}}
  else if(t.dataset.ff==='note'&&ui.finish){ui.finish.note=t.value}});
 document.addEventListener('change',e=>{const t=e.target;
- if(t.dataset.w!=null&&state.draft){state.draft.warm[t.dataset.w]=t.checked;saveDraft()}
+ if(t.dataset.cd&&state.draft){state.draft.cardio[t.dataset.cd]=t.value;saveDraft();if(t.dataset.cd==='tipo')render()}
+ else if(t.dataset.w!=null&&state.draft){state.draft.warm[t.dataset.w]=t.checked;saveDraft()}
  else if(t.dataset.ff&&ui.finish&&t.type==='checkbox'){ui.finish[t.dataset.ff]=t.checked}
  else if(t.dataset.f==='progEx'){ui.progEx=t.value;render()}
  else if(t.dataset.p){const k=t.dataset.p;let v=t.value;if(k!=='inizio'){v=parseFloat(String(v).replace(',','.'));if(!(v>0)){toast('Valore non valido');render();return}}else if(!v){render();return}state.profile[k]=v;save();render()}});
