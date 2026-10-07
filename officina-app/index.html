@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Officina App</title>
+  <link rel="stylesheet" href="assets/officina.css">
+</head>
+<body>
+  <header class="topbar">
+    <button id="btn-menu" class="icon-btn" title="Missioni" aria-label="Mostra missioni">☰</button>
+    <div class="brand">🛠️ <strong>Officina App</strong> <span class="muted">impari facendo</span></div>
+    <div class="overall">
+      <div class="bar"><div id="overall-fill"></div></div>
+      <span id="overall-text">0%</span>
+    </div>
+    <button id="btn-guida" class="ghost">Come funziona</button>
+  </header>
+
+  <div class="layout">
+    <nav id="sidebar" aria-label="Missioni"></nav>
+
+    <section id="mission" aria-label="Missione"></section>
+
+    <section id="editor-pane" aria-label="Editor">
+      <div class="pane-head">
+        <div id="tabs" class="tabs"></div>
+        <div class="tools">
+          <label class="auto" title="Aggiorna l'anteprima mentre scrivi"><input type="checkbox" id="auto-run" checked> auto</label>
+          <button id="btn-run" title="Esegui (Ctrl+Invio)">▶ Esegui</button>
+        </div>
+      </div>
+      <div class="editor">
+        <pre id="gutter" aria-hidden="true">1</pre>
+        <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
+      </div>
+      <div class="pane-foot">
+        <button id="btn-export" class="ghost" title="Scarica il tuo lavoro come file .html">⤓ Esporta file</button>
+        <button id="btn-reset" class="ghost danger" title="Ricomincia questa missione da capo">↺ Ricomincia missione</button>
+      </div>
+    </section>
+
+    <section id="output-pane" aria-label="Risultato">
+      <div class="pane-head"><span class="label">Anteprima</span></div>
+      <div id="preview-host" class="preview"></div>
+      <div class="pane-head console-head">
+        <span class="label">Console</span>
+        <button id="btn-clear" class="ghost small">pulisci</button>
+      </div>
+      <div id="console" class="console"></div>
+    </section>
+  </div>
+
+  <!-- Qui il verificatore carica la tua pagina per metterla alla prova -->
+  <div id="test-host" class="test-host" aria-hidden="true"></div>
+
+  <dialog id="guida">
+    <h2>🛠️ Benvenuto in Officina</h2>
+    <p>Qui non ci sono lezioni da leggere: <strong>ogni cosa la scrivi tu</strong>. L'app non genera mai il codice al posto tuo.</p>
+    <ol>
+      <li><strong>Leggi l'obiettivo</strong> del passo (a sinistra).</li>
+      <li><strong>Scrivi il codice</strong> nell'editor (al centro). L'anteprima si aggiorna da sola.</li>
+      <li>Premi <strong>✔ Verifica</strong>: un controllore prova la tua app come farebbe un utente e ti dice cosa non va.</li>
+      <li>Bloccato? Gli <strong>💡 suggerimenti</strong> si sbloccano uno alla volta. Gli <em>esempi</em> parlano sempre di un caso diverso dal tuo: devi adattarli, non copiarli.</li>
+    </ol>
+    <p><strong>Il percorso:</strong> 10 missioni guidate (dalla prima pagina HTML fino a costruire un'app che insegna, come questa), poi le <strong>sfide da zero</strong>, dove hai solo i requisiti, e infine il <strong>laboratorio libero</strong> per le tue idee.</p>
+    <p class="muted">Il tuo lavoro viene salvato automaticamente in questo browser.</p>
+    <form method="dialog"><button class="primary">Iniziamo</button></form>
+  </dialog>
+
+  <script src="assets/engine.js"></script>
+  <script src="assets/missioni.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
