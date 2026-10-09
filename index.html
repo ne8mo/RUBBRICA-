@@ -206,6 +206,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
   <div class="footer-tools">
     <button class="btn small" id="exportBtn" type="button" hidden>Scarica elenco (CSV)</button>
     <span class="hint" id="whoami" hidden></span>
+    <button class="linkbtn" id="pwBtn" type="button" hidden>Cambia password</button>
     <button class="linkbtn" id="logoutBtn" type="button" hidden>Esci da questo dispositivo</button>
   </div>
 </div>
@@ -309,6 +310,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
     $('#statusText').textContent = mode === 'live' ? (navigator.onLine ? 'Condivisa · aggiornata in tempo reale' : 'Offline · si aggiorna appena torna la rete') : mode === 'local' ? 'Solo su questo dispositivo' : 'Collegamento…';
     $('#logoutBtn').hidden = mode !== 'live';
     $('#whoami').hidden = mode !== 'live';
+    $('#pwBtn').hidden = mode !== 'live';
     $('#localBanner').hidden = mode !== 'local';
   }
 
@@ -491,10 +493,30 @@ label.f textarea { resize: vertical; min-height: 64px; }
       </form>`;
   }
 
+  function renderPasswordSheet() {
+    const u = firebase.auth().currentUser;
+    return `
+      <div class="sheet-head">
+        <h2 id="sheetTitle">Cambia password</h2>
+        <button class="x" type="button" data-close aria-label="Chiudi">×</button>
+      </div>
+      <p class="hint">Account: <b>${esc(u && u.email)}</b>. Dopo il cambio, sugli altri telefoni bisognerà rientrare con la password nuova.</p>
+      <form id="pwForm" class="tr">
+        <label class="f">Password attuale<input id="pw-old" type="password" autocomplete="current-password" required></label>
+        <label class="f">Password nuova<input id="pw-new" type="password" autocomplete="new-password" minlength="6" required></label>
+        <label class="f">Ripeti la password nuova<input id="pw-new2" type="password" autocomplete="new-password" minlength="6" required></label>
+        <p class="hint">Almeno 6 caratteri. Meglio 10 o più, con lettere e numeri.</p>
+        <div class="sheet-foot"><div class="right">
+          <button class="btn" type="button" data-close>Annulla</button>
+          <button class="btn primary" type="submit" id="pwSave">Cambia password</button>
+        </div></div>
+      </form>`;
+  }
+
   function showSheet() {
     const el = $('#sheet');
     const focusId = document.activeElement && el.contains(document.activeElement) ? document.activeElement.id : null;
-    el.innerHTML = sheet.kind === 'contact' ? renderContactSheet() : renderSectionsSheet();
+    el.innerHTML = sheet.kind === 'contact' ? renderContactSheet() : sheet.kind === 'password' ? renderPasswordSheet() : renderSectionsSheet();
     $('#overlay').hidden = false;
     document.body.style.overflow = 'hidden';
     if (focusId) document.getElementById(focusId)?.focus();
@@ -634,8 +656,32 @@ label.f textarea { resize: vertical; min-height: 64px; }
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, err ? 5000 : 2200);
   }
 
+  async function changePassword() {
+    const u = firebase.auth().currentUser;
+    const oldPw = $('#pw-old').value, n1 = $('#pw-new').value, n2 = $('#pw-new2').value;
+    if (n1 !== n2) { toast('Le due password nuove non sono uguali.', true); $('#pw-new2').focus(); return; }
+    if (n1.length < 6) { toast('La password nuova deve avere almeno 6 caratteri.', true); return; }
+    if (n1 === oldPw) { toast('La password nuova è uguale a quella attuale.', true); return; }
+    const btn = $('#pwSave'); btn.disabled = true; btn.textContent = 'Cambio in corso…';
+    try {
+      await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email, oldPw));
+      await u.updatePassword(n1);
+      closeSheet();
+      toast('Password cambiata. Usa quella nuova sugli altri telefoni.');
+    } catch (ex) {
+      const c = ex && ex.code;
+      toast(c === 'auth/wrong-password' || c === 'auth/invalid-credential' || c === 'auth/invalid-login-credentials' ? 'La password attuale è sbagliata.'
+        : c === 'auth/weak-password' ? 'Password troppo debole: usane una più lunga.'
+        : c === 'auth/too-many-requests' ? 'Troppi tentativi. Aspetta qualche minuto e riprova.'
+        : c === 'auth/network-request-failed' ? 'Nessuna connessione. Riprova quando c\'è rete.'
+        : 'Cambio password non riuscito. Riprova.', true);
+      btn.disabled = false; btn.textContent = 'Cambia password';
+    }
+  }
+
   // ---------- Accesso ----------
   document.addEventListener('submit', async e => {
+    if (e.target.id === 'pwForm') { e.preventDefault(); changePassword(); return; }
     if (e.target.id !== 'loginForm') return;
     e.preventDefault();
     const err = $('#loginErr'), btn = $('#loginBtn');
@@ -649,6 +695,7 @@ label.f textarea { resize: vertical; min-height: 64px; }
     btn.disabled = false; btn.textContent = 'Entra';
   });
   document.addEventListener('click', e => {
+    if (e.target.id === 'pwBtn') { sheet = { kind: 'password' }; showSheet(); setTimeout(() => $('#pw-old')?.focus(), 30); return; }
     if (e.target.id !== 'logoutBtn') return;
     unsubs.splice(0).forEach(u => u());
     firebase.auth().signOut();
